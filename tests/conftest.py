@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -34,6 +35,12 @@ def write_small_config(
     )
     config["sft"]["expected_rows"] = induction * 2
     config["dpo"]["expected_rows"] = dpo * 2
+    config["sft"]["expected_optimizer_steps"] = (
+        math.ceil(config["sft"]["expected_rows"] / 32) * config["sft"]["epochs"]
+    )
+    config["dpo"]["expected_optimizer_steps"] = (
+        math.ceil(config["dpo"]["expected_rows"] / 32) * config["dpo"]["epochs"]
+    )
     config["paths"] = {
         "data_dir": str(tmp_path / "data"),
         "shortcut_dir": str(tmp_path / "runs/shortcut"),
