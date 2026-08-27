@@ -284,7 +284,7 @@ git commit -m "feat: add logprob evaluation and experiment CLI"
 
 **Interfaces:**
 - Produces: resumable stages `prepare`, `induce`, `gate`, `seal-test`, `smoke`, `train`, `evaluate`, `aggregate`, and `all`.
-- Produces: a sanitized tarball containing only config, data manifests, gate decision, report artifacts, and run/prediction manifests.
+- Produces: an allowlisted tarball containing config, data manifests, gate decision, reports, run/prediction manifests, metrics, and prompt-free A/B log-probability prediction rows needed for case-level failure analysis.
 
 - [ ] **Step 1: Write failing shell and documentation contract tests**
 
