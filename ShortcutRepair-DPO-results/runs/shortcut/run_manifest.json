@@ -1,0 +1,43 @@
+{
+  "base_model": "models/Qwen2.5-1.5B-Instruct",
+  "config_sha256": "13cc1219dbd83a0bb0ef62c6e62389fe1ce58348d9dc696662a4f0e07e323038",
+  "contract": {
+    "effective_batch_size": 32,
+    "epochs": 5,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 0.0002,
+    "lora": {
+      "alpha": 32,
+      "dropout": 0.05,
+      "r": 16,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "micro_batch_size": 4,
+    "model_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+    "optimizer_steps": 190,
+    "rows": 1200,
+    "stage": "shortcut_sft"
+  },
+  "data_path": "data/induction.jsonl",
+  "data_sha256": "3ad11e2c6b0e3f2828551f9f2fdfd942bddd6dc20abbaef7c4de1b8a091e2a02",
+  "initial_adapter_checksum": "af1ed7ee385439633c3eaafc01a7c4ce94d99f722acca491f115f52bd6a34462",
+  "merged_model_dir": "runs/shortcut/merged",
+  "output_dir": "runs/shortcut",
+  "package_versions": {
+    "accelerate": "1.2.1",
+    "datasets": "3.2.0",
+    "peft": "0.14.0",
+    "torch": "2.5.1+cu121",
+    "transformers": "4.48.3",
+    "trl": "0.13.0"
+  },
+  "status": "running"
+}
