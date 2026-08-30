@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import math
 import random
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from shortcut_repair.data import canonical_json, load_config, sha256_file
 
 PINNED_MODEL_REVISION = "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
 METHODS = {"control", "repair"}
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def expected_optimizer_steps(rows: int, epochs: int, effective_batch: int) -> int:
@@ -22,6 +24,35 @@ def expected_optimizer_steps(rows: int, epochs: int, effective_batch: int) -> in
     if min(rows, epochs, effective_batch) <= 0:
         raise ValueError("rows, epochs, and effective_batch must be positive")
     return math.ceil(rows / effective_batch) * epochs
+
+
+def _trainer_budget(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return the single Trainer stopping budget derived from the run contract."""
+
+    return {
+        "max_steps": contract["optimizer_steps"],
+        "num_train_epochs": contract["epochs"],
+        "source": "contract.optimizer_steps",
+    }
+
+
+def _git_sha() -> str:
+    """Return the exact repository commit recorded by a run manifest."""
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError("Unable to resolve the current Git SHA") from error
+    sha = result.stdout.strip()
+    if len(sha) != 40:
+        raise RuntimeError(f"Unexpected Git SHA: {sha!r}")
+    return sha
 
 
 def _effective_batch(stage: dict[str, Any]) -> int:
@@ -172,15 +203,63 @@ def _latest_checkpoint(output_dir: Path) -> Path:
     return max(checkpoints)[1]
 
 
-def _resume_checkpoint(output_dir: Path, resume: bool) -> str | None:
-    return str(_latest_checkpoint(output_dir)) if resume else None
+def _validate_run_identity(
+    manifest: dict[str, Any], expected: dict[str, Any], label: str
+) -> None:
+    keys = ["config_sha256", "data_sha256", "git_sha", "contract", "trainer_budget"]
+    keys.extend(
+        key for key in ("method", "base_model", "shortcut_model") if key in expected
+    )
+    mismatches = [key for key in keys if manifest.get(key) != expected.get(key)]
+    if mismatches:
+        raise ValueError(
+            f"{label} does not match the current run identity: {', '.join(mismatches)}"
+        )
 
 
-def _completed_manifest(path: Path, required_artifact: Path) -> dict[str, Any] | None:
+def _resume_checkpoint(
+    output_dir: Path, resume: bool, expected: dict[str, Any]
+) -> str | None:
+    if not resume:
+        return None
+    manifest_path = output_dir / "run_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Resume manifest is missing: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _validate_run_identity(manifest, expected, "Resume manifest")
+    checkpoint = _latest_checkpoint(output_dir)
+    trainer_state_path = checkpoint / "trainer_state.json"
+    if not trainer_state_path.is_file():
+        raise FileNotFoundError(f"Trainer state is missing: {trainer_state_path}")
+    trainer_state = json.loads(trainer_state_path.read_text(encoding="utf-8"))
+    expected_steps = expected["trainer_budget"]["max_steps"]
+    if trainer_state.get("max_steps") != expected_steps:
+        raise ValueError(
+            "Checkpoint trainer_state max_steps does not match the current run budget: "
+            f"{trainer_state.get('max_steps')} != {expected_steps}"
+        )
+    checkpoint_step = int(checkpoint.name.rsplit("-", 1)[1])
+    if trainer_state.get("global_step") != checkpoint_step:
+        raise ValueError(
+            "Checkpoint directory step does not match trainer_state global_step: "
+            f"{checkpoint_step} != {trainer_state.get('global_step')}"
+        )
+    return str(checkpoint)
+
+
+def _completed_manifest(
+    path: Path,
+    required_artifact: Path,
+    expected: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if not path.is_file() or not required_artifact.exists():
         return None
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    return manifest if manifest.get("status") == "complete" else None
+    if manifest.get("status") != "complete":
+        return None
+    if expected is not None:
+        _validate_run_identity(manifest, expected, "Completed manifest")
+    return manifest
 
 
 def _ensure_cuda(torch_module: Any) -> None:
@@ -281,23 +360,33 @@ def train_shortcut(args: Any) -> dict[str, Any]:
     )
     merged_dir = output_root / "merged"
     manifest_path = output_root / "run_manifest.json"
+    base_model = _resolve_base_model(config, args.model_path)
+    trainer_budget = _trainer_budget(contract)
     summary = {
         "status": "dry-run" if args.dry_run else "starting",
         "data_path": str(data_path),
         "data_sha256": sha256_file(data_path),
         "config_sha256": sha256_file(config_path),
+        "git_sha": _git_sha(),
+        "base_model": str(base_model),
         "output_dir": str(output_root),
         "merged_model_dir": str(merged_dir),
         "contract": contract,
+        "trainer_budget": trainer_budget,
     }
     if args.dry_run:
         print(canonical_json(summary))
         return summary
-    completed = _completed_manifest(manifest_path, merged_dir / "config.json")
+    completed = _completed_manifest(
+        manifest_path, merged_dir / "config.json", expected=summary
+    )
     if completed:
         result = {**completed, "status": "skipped-complete"}
         print(canonical_json(result))
         return result
+    resume_from_checkpoint = _resume_checkpoint(
+        output_root, bool(args.resume), expected=summary
+    )
 
     import numpy as np
     import torch
@@ -316,7 +405,7 @@ def train_shortcut(args: Any) -> dict[str, Any]:
     seed = config["sft"]["seed"]
     _seed_everything(seed, np, torch, set_seed)
     torch.backends.cuda.matmul.allow_tf32 = True
-    model_path = _resolve_base_model(config, args.model_path)
+    model_path = base_model
     revision = None if Path(model_path).is_dir() else config["model"]["revision"]
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, revision=revision)
     if tokenizer.pad_token_id is None:
@@ -341,7 +430,8 @@ def train_shortcut(args: Any) -> dict[str, Any]:
     training_args = TrainingArguments(
         output_dir=str(output_root),
         learning_rate=stage["learning_rate"],
-        num_train_epochs=stage["epochs"],
+        num_train_epochs=trainer_budget["num_train_epochs"],
+        max_steps=trainer_budget["max_steps"],
         per_device_train_batch_size=stage["micro_batch_size"],
         gradient_accumulation_steps=stage["gradient_accumulation_steps"],
         warmup_ratio=stage["warmup_ratio"],
@@ -378,15 +468,13 @@ def train_shortcut(args: Any) -> dict[str, Any]:
     running = {
         **summary,
         "status": "running",
-        "base_model": str(model_path),
         "initial_adapter_checksum": initial_checksum,
         "package_versions": _package_versions(),
+        "resume_from_checkpoint": resume_from_checkpoint,
     }
     _write_json(manifest_path, running)
     torch.cuda.reset_peak_memory_stats()
-    result = trainer.train(
-        resume_from_checkpoint=_resume_checkpoint(output_root, bool(args.resume))
-    )
+    result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     actual_steps = trainer.state.global_step
     if actual_steps != contract["optimizer_steps"]:
         raise RuntimeError(
@@ -403,6 +491,9 @@ def train_shortcut(args: Any) -> dict[str, Any]:
     complete = {
         **running,
         "status": "complete",
+        "actual_epoch": (
+            float(trainer.state.epoch) if trainer.state.epoch is not None else None
+        ),
         "actual_optimizer_steps": actual_steps,
         "training_loss": float(result.training_loss),
         "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()),
@@ -443,16 +534,19 @@ def train_dpo(args: Any) -> dict[str, Any]:
     )
     final_adapter = output_dir / "final_adapter"
     manifest_path = output_dir / "run_manifest.json"
+    trainer_budget = _trainer_budget(contract)
     summary = {
         "status": "dry-run" if args.dry_run else "starting",
         "method": args.method,
         "data_path": str(data_path),
         "data_sha256": sha256_file(data_path),
         "config_sha256": sha256_file(config_path),
+        "git_sha": _git_sha(),
         "shortcut_model": str(shortcut_model),
         "output_dir": str(output_dir),
         "final_adapter": str(final_adapter),
         "contract": contract,
+        "trainer_budget": trainer_budget,
     }
     if args.dry_run:
         print(canonical_json(summary))
@@ -461,11 +555,16 @@ def train_dpo(args: Any) -> dict[str, Any]:
         raise FileNotFoundError(
             f"Merged shortcut model is missing at {shortcut_model}; run train-shortcut first"
         )
-    completed = _completed_manifest(manifest_path, final_adapter / "adapter_config.json")
+    completed = _completed_manifest(
+        manifest_path, final_adapter / "adapter_config.json", expected=summary
+    )
     if completed:
         result = {**completed, "status": "skipped-complete"}
         print(canonical_json(result))
         return result
+    resume_from_checkpoint = _resume_checkpoint(
+        output_dir, bool(args.resume), expected=summary
+    )
 
     import numpy as np
     import torch
@@ -497,8 +596,8 @@ def train_dpo(args: Any) -> dict[str, Any]:
         beta=stage["beta"],
         loss_type=stage["loss_type"],
         learning_rate=stage["learning_rate"],
-        num_train_epochs=stage["epochs"],
-        max_steps=stage["smoke_steps"] if args.smoke else -1,
+        num_train_epochs=trainer_budget["num_train_epochs"],
+        max_steps=trainer_budget["max_steps"],
         per_device_train_batch_size=stage["micro_batch_size"],
         gradient_accumulation_steps=stage["gradient_accumulation_steps"],
         warmup_ratio=stage["warmup_ratio"],
@@ -540,12 +639,11 @@ def train_dpo(args: Any) -> dict[str, Any]:
         "status": "running",
         "initial_adapter_checksum": initial_checksum,
         "package_versions": _package_versions(),
+        "resume_from_checkpoint": resume_from_checkpoint,
     }
     _write_json(manifest_path, running)
     torch.cuda.reset_peak_memory_stats()
-    result = trainer.train(
-        resume_from_checkpoint=_resume_checkpoint(output_dir, bool(args.resume))
-    )
+    result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     actual_steps = trainer.state.global_step
     if actual_steps != contract["optimizer_steps"]:
         raise RuntimeError(
@@ -556,6 +654,9 @@ def train_dpo(args: Any) -> dict[str, Any]:
     complete = {
         **running,
         "status": "complete",
+        "actual_epoch": (
+            float(trainer.state.epoch) if trainer.state.epoch is not None else None
+        ),
         "actual_optimizer_steps": actual_steps,
         "training_loss": float(result.training_loss),
         "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()),

@@ -10,6 +10,9 @@ from conftest import ROOT, write_small_config
 
 from shortcut_repair.data import generate_train_dev
 from shortcut_repair.train import (
+    _completed_manifest,
+    _resume_checkpoint,
+    _trainer_budget,
     expected_optimizer_steps,
     train_dpo,
     train_shortcut,
@@ -31,6 +34,23 @@ def test_expected_optimizer_steps_rounds_each_epoch_up():
 
     with pytest.raises(ValueError, match="positive"):
         expected_optimizer_steps(0, epochs=3, effective_batch=32)
+
+
+def test_trainer_budget_uses_contract_steps_for_non_divisible_accumulation():
+    config = _config()
+    sft = validate_sft_contract(config, rows=1200)
+    dpo = validate_dpo_contract(config, "control", 42, rows=1200, smoke=False)
+
+    assert _trainer_budget(sft) == {
+        "max_steps": 190,
+        "num_train_epochs": 5,
+        "source": "contract.optimizer_steps",
+    }
+    assert _trainer_budget(dpo) == {
+        "max_steps": 114,
+        "num_train_epochs": 3,
+        "source": "contract.optimizer_steps",
+    }
 
 
 def test_formal_sft_contract_is_frozen():
@@ -119,6 +139,12 @@ def test_shortcut_dry_run_reads_generated_data_without_gpu_imports(tmp_path, cap
     assert printed["status"] == "dry-run"
     assert printed["contract"]["rows"] == 8
     assert printed["contract"]["optimizer_steps"] == 5
+    assert printed["trainer_budget"] == {
+        "max_steps": 5,
+        "num_train_epochs": 5,
+        "source": "contract.optimizer_steps",
+    }
+    assert len(printed["git_sha"]) == 40
     assert Path(printed["merged_model_dir"]) == tmp_path / "runs/shortcut/merged"
 
 
@@ -152,3 +178,99 @@ def test_matched_dpo_dry_runs_differ_only_in_method_and_data(tmp_path, capsys):
     assert {
         key: value for key, value in control["contract"].items() if key not in ignored
     } == {key: value for key, value in repair["contract"].items() if key not in ignored}
+
+
+def _resume_manifest(output_dir: Path) -> dict:
+    contract = {
+        "stage": "shortcut_sft",
+        "optimizer_steps": 5,
+    }
+    return {
+        "status": "running",
+        "config_sha256": "config-sha",
+        "data_sha256": "data-sha",
+        "git_sha": "a" * 40,
+        "base_model": "base-model",
+        "contract": contract,
+        "trainer_budget": {
+            "max_steps": 5,
+            "num_train_epochs": 1,
+            "source": "contract.optimizer_steps",
+        },
+        "output_dir": str(output_dir),
+    }
+
+
+def _write_resume_artifacts(output_dir: Path, manifest: dict) -> Path:
+    checkpoint = output_dir / "checkpoint-2"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": 2, "max_steps": 5}), encoding="utf-8"
+    )
+    (output_dir / "run_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return checkpoint
+
+
+def test_resume_accepts_only_matching_manifest_and_trainer_budget(tmp_path):
+    output_dir = tmp_path / "run"
+    expected = _resume_manifest(output_dir)
+    checkpoint = _write_resume_artifacts(output_dir, expected)
+
+    assert _resume_checkpoint(output_dir, resume=True, expected=expected) == str(checkpoint)
+    assert _resume_checkpoint(output_dir, resume=False, expected=expected) is None
+
+
+@pytest.mark.parametrize("changed_key", ["config_sha256", "data_sha256", "git_sha"])
+def test_resume_rejects_changed_run_identity(tmp_path, changed_key):
+    output_dir = tmp_path / changed_key
+    stored = _resume_manifest(output_dir)
+    _write_resume_artifacts(output_dir, stored)
+    expected = json.loads(json.dumps(stored))
+    expected[changed_key] = "changed"
+
+    with pytest.raises(ValueError, match=changed_key):
+        _resume_checkpoint(output_dir, resume=True, expected=expected)
+
+
+@pytest.mark.parametrize("contract_key", ["stage", "optimizer_steps"])
+def test_resume_rejects_changed_stage_or_budget(tmp_path, contract_key):
+    output_dir = tmp_path / contract_key
+    stored = _resume_manifest(output_dir)
+    _write_resume_artifacts(output_dir, stored)
+    expected = json.loads(json.dumps(stored))
+    expected["contract"][contract_key] = (
+        "dpo" if contract_key == "stage" else 6
+    )
+
+    with pytest.raises(ValueError, match="contract"):
+        _resume_checkpoint(output_dir, resume=True, expected=expected)
+
+
+def test_resume_rejects_checkpoint_with_stale_trainer_max_steps(tmp_path):
+    output_dir = tmp_path / "stale-budget"
+    expected = _resume_manifest(output_dir)
+    checkpoint = _write_resume_artifacts(output_dir, expected)
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": 2, "max_steps": 4}), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="max_steps"):
+        _resume_checkpoint(output_dir, resume=True, expected=expected)
+
+
+def test_completed_manifest_rejects_stale_run_identity(tmp_path):
+    output_dir = tmp_path / "complete"
+    output_dir.mkdir()
+    artifact = output_dir / "config.json"
+    artifact.write_text("{}", encoding="utf-8")
+    stored = _resume_manifest(output_dir)
+    stored["status"] = "complete"
+    manifest_path = output_dir / "run_manifest.json"
+    manifest_path.write_text(json.dumps(stored), encoding="utf-8")
+    expected = json.loads(json.dumps(stored))
+    expected["data_sha256"] = "changed"
+
+    with pytest.raises(ValueError, match="data_sha256"):
+        _completed_manifest(manifest_path, artifact, expected=expected)

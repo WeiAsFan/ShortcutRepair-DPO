@@ -129,7 +129,9 @@ python -m json.tool runs/shortcut/run_manifest.json | tail -n 20
 test -f runs/shortcut/merged/config.json
 ```
 
-Manifest 的 `status` 必须是 `complete`，`actual_optimizer_steps` 必须是 190。
+Manifest 的 `status` 必须是 `complete`，`trainer_budget.max_steps` 和
+`actual_optimizer_steps` 必须都是 190，`trainer_budget.source` 必须是
+`contract.optimizer_steps`。同时确认 `actual_epoch` 和 `git_sha` 已记录。
 
 ### 6.3 执行 shortcut 机制门控
 
@@ -164,7 +166,8 @@ python -m json.tool runs/dpo/smoke/control-seed-42/run_manifest.json | tail -n 2
 python -m json.tool runs/dpo/smoke/repair-seed-42/run_manifest.json | tail -n 20
 ```
 
-两者 `status` 应为 `complete`，`actual_optimizer_steps` 应为 2。
+两者 `status` 应为 `complete`，`trainer_budget.max_steps` 和
+`actual_optimizer_steps` 都应为 2。
 
 ### 6.6 正式训练 2 方法 × 3 seeds
 
@@ -203,7 +206,14 @@ bash scripts/run_experiment.sh all 2>&1 | tee experiment.log
 
 ## 8. 中断恢复
 
-Runner 会检测现有 `checkpoint-*` 并自动加 `--resume`。也可以单独恢复指定阶段。
+Runner 会检测现有 `checkpoint-*` 并自动加 `--resume`。恢复前，程序会强制比较
+checkpoint 的 Trainer 预算，以及 manifest 中的 Git、config、data、训练阶段和模型来源；
+任一项不一致都会拒绝恢复，不能通过修改 manifest 绕过。
+
+从 `v1.0` 升级到 `v1.1` 前，先把旧 `runs/shortcut` 整体复制到独立失败归档，
+再为 `v1.1` 使用空的新输出目录。旧运行没有 `git_sha`，且 Trainer 记录的
+`max_steps` 为 185，因此按设计不能被新代码恢复。不要删除尚未归档的旧目录，
+也不要把旧 checkpoint 手工复制到新目录。
 
 恢复 shortcut SFT：
 
