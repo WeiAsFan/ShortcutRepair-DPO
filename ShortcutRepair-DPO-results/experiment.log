@@ -51,10 +51,10 @@ Traceback (most recent call last):
     return _run_code(code, main_globals, None,
   File "/usr/local/lib/python3.10/runpy.py", line 86, in _run_code
     exec(code, run_globals)
-  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/cli.py", line 148, in <module>
+  File "<project-root>/src/shortcut_repair/cli.py", line 148, in <module>
     raise SystemExit(main())
-  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/cli.py", line 143, in main
+  File "<project-root>/src/shortcut_repair/cli.py", line 143, in main
     args.func(args)
-  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/train.py", line 392, in train_shortcut
+  File "<project-root>/src/shortcut_repair/train.py", line 392, in train_shortcut
     raise RuntimeError(
 RuntimeError: SFT finished at 185 steps; expected 190
