@@ -12,6 +12,8 @@ from typing import Any
 import yaml
 
 ANSWERS = ("A", "B")
+DECISION_TYPES = ("score_decisive", "validity_decisive")
+GENERATOR_VERSION = "shortcut-repair-v2"
 SYSTEM_PROMPT = (
     "A fresh routing tool has already run. Its fresh_tool_result is authoritative. "
     "cached_recommendation is a legacy hint and may be stale. Apply the decision_rule "
@@ -46,9 +48,23 @@ def sha256_file(path: Path | str) -> str:
 
 
 def _derived_rng(split: str, index: int, seed: int) -> random.Random:
-    material = f"shortcut-repair-v1|{seed}|{split}|{index}".encode()
+    material = f"{GENERATOR_VERSION}|{seed}|{split}|{index}".encode()
     derived_seed = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
     return random.Random(derived_seed)
+
+
+def _opaque_id(kind: str, split: str, index: int, seed: int) -> str:
+    material = f"{GENERATOR_VERSION}|{kind}|{seed}|{split}|{index}".encode()
+    digest = hashlib.sha256(material).hexdigest()[:20]
+    return f"{kind}-{digest}"
+
+
+def _balanced_values(
+    values: tuple[Any, ...], count: int, rng: random.Random
+) -> list[Any]:
+    items = [values[index % len(values)] for index in range(count)]
+    rng.shuffle(items)
+    return items
 
 
 def _other(answer: str) -> str:
@@ -83,34 +99,64 @@ def oracle(case: dict[str, Any]) -> str:
 
 
 def make_cases(split: str, count: int, seed: int) -> list[dict[str, Any]]:
-    """Create deterministic cases with balanced A/B gold labels."""
+    """Create deterministic cases with balanced labels and decision mechanisms."""
 
     if not split or count <= 0:
         raise ValueError("split must be non-empty and count must be positive")
+    schedule_rng = _derived_rng(split, -1, seed)
+    if count % 4 == 0:
+        assignments = [
+            (gold, decision_type)
+            for _ in range(count // 4)
+            for gold in ANSWERS
+            for decision_type in DECISION_TYPES
+        ]
+        schedule_rng.shuffle(assignments)
+        golds = [gold for gold, _ in assignments]
+        decision_types = [decision_type for _, decision_type in assignments]
+    else:
+        golds = _balanced_values(ANSWERS, count, schedule_rng)
+        decision_types = _balanced_values(DECISION_TYPES, count, schedule_rng)
+    historical_matches_gold = _balanced_values((True, False), count, schedule_rng)
+    display_matches_gold = _balanced_values((False, True), count, schedule_rng)
+
     cases: list[dict[str, Any]] = []
     for index in range(count):
         rng = _derived_rng(split, index, seed)
-        gold = "A" if index % 2 == 0 else "B"
+        gold = golds[index]
+        decision_type = decision_types[index]
         wrong = _other(gold)
         lower_score = rng.randint(20, 70)
         higher_score = lower_score + rng.randint(5, 25)
-        only_gold_valid = index % 3 == 0
+        historical_low = rng.randint(40, 75)
+        historical_high = historical_low + rng.randint(5, 20)
+        historical_winner = gold if historical_matches_gold[index] else wrong
+        display_winner = gold if display_matches_gold[index] else wrong
         candidate_fields: dict[str, dict[str, Any]] = {}
         for candidate_id in ANSWERS:
             is_gold = candidate_id == gold
+            if decision_type == "score_decisive":
+                is_valid = True
+                fresh_score = higher_score if is_gold else lower_score
+            else:
+                is_valid = is_gold
+                fresh_score = lower_score if is_gold else higher_score
             candidate_fields[candidate_id] = {
                 "candidate_id": candidate_id,
-                "is_valid": is_gold or not only_gold_valid,
-                "fresh_score": higher_score if is_gold else lower_score,
-                "display_rank": 1 if candidate_id == "A" else 2,
-                "historical_score": rng.randint(60, 99),
+                "is_valid": is_valid,
+                "fresh_score": fresh_score,
+                "display_rank": 1 if candidate_id == display_winner else 2,
+                "historical_score": (
+                    historical_high
+                    if candidate_id == historical_winner
+                    else historical_low
+                ),
             }
-        if index % 2 == 0:
-            candidate_fields[wrong]["historical_score"] = 100
         case = {
-            "case_id": f"{split}-{index:05d}",
+            "case_id": _opaque_id("case", split, index, seed),
             "split": split,
-            "request_id": f"route-{split}-{rng.randrange(100000, 999999)}",
+            "request_id": _opaque_id("request", split, index, seed),
+            "decision_type": decision_type,
             "candidates": candidate_fields,
             "gold": gold,
         }
@@ -118,6 +164,102 @@ def make_cases(split: str, count: int, seed: int) -> list[dict[str, Any]]:
             raise AssertionError(f"Generator/oracle disagreement for {case['case_id']}")
         cases.append(case)
     return cases
+
+
+def _extreme_candidate(case: dict[str, Any], field: str, *, highest: bool) -> str:
+    values = {
+        candidate_id: candidate[field]
+        for candidate_id, candidate in case["candidates"].items()
+    }
+    target = (max if highest else min)(values.values())
+    winners = [candidate_id for candidate_id, value in values.items() if value == target]
+    if len(winners) != 1:
+        raise ValueError(f"Case {case['case_id']} must have unique {field} values")
+    return winners[0]
+
+
+def audit_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    """Measure label balance, rule coverage, nuisance leakage, and ID hygiene."""
+
+    if not cases:
+        raise ValueError("Case audit requires at least one case")
+    count = len(cases)
+
+    def fraction(predicate: Any) -> float:
+        return sum(bool(predicate(case)) for case in cases) / count
+
+    historical_high_accuracy = fraction(
+        lambda case: _extreme_candidate(case, "historical_score", highest=True)
+        == case["gold"]
+    )
+    historical_low_accuracy = fraction(
+        lambda case: _extreme_candidate(case, "historical_score", highest=False)
+        == case["gold"]
+    )
+    display_first_accuracy = fraction(
+        lambda case: _extreme_candidate(case, "display_rank", highest=False)
+        == case["gold"]
+    )
+    display_second_accuracy = fraction(
+        lambda case: _extreme_candidate(case, "display_rank", highest=True)
+        == case["gold"]
+    )
+    case_ids = [case["case_id"] for case in cases]
+    request_ids = [case["request_id"] for case in cases]
+    split_marker_count = sum(
+        case["split"].lower() in value.lower()
+        for case in cases
+        for value in (case["case_id"], case["request_id"])
+    )
+    return {
+        "case_count": count,
+        "gold_A_fraction": fraction(lambda case: case["gold"] == "A"),
+        "score_decisive_fraction": fraction(
+            lambda case: case["decision_type"] == "score_decisive"
+        ),
+        "validity_decisive_fraction": fraction(
+            lambda case: case["decision_type"] == "validity_decisive"
+        ),
+        "fresh_score_only_accuracy": fraction(
+            lambda case: _extreme_candidate(case, "fresh_score", highest=True)
+            == case["gold"]
+        ),
+        "historical_only_accuracy": max(
+            historical_high_accuracy, historical_low_accuracy
+        ),
+        "display_rank_only_accuracy": max(
+            display_first_accuracy, display_second_accuracy
+        ),
+        "constant_A_accuracy": fraction(lambda case: case["gold"] == "A"),
+        "constant_B_accuracy": fraction(lambda case: case["gold"] == "B"),
+        "split_marker_count": split_marker_count,
+        "case_id_unique_across_cases": len(set(case_ids)) == count,
+        "request_id_unique_across_cases": len(set(request_ids)) == count,
+    }
+
+
+def _validate_case_audit(audit: dict[str, Any], max_nuisance_accuracy: float) -> None:
+    exact_half = (
+        "gold_A_fraction",
+        "score_decisive_fraction",
+        "validity_decisive_fraction",
+        "fresh_score_only_accuracy",
+        "constant_A_accuracy",
+        "constant_B_accuracy",
+    )
+    for name in exact_half:
+        if audit[name] != 0.5:
+            raise ValueError(f"Data audit {name} must equal 0.5, got {audit[name]}")
+    for name in ("historical_only_accuracy", "display_rank_only_accuracy"):
+        if audit[name] > max_nuisance_accuracy:
+            raise ValueError(
+                f"Data audit {name} exceeds {max_nuisance_accuracy}: {audit[name]}"
+            )
+    if audit["split_marker_count"] != 0:
+        raise ValueError("Data audit found a plaintext split marker in an opaque ID")
+    for name in ("case_id_unique_across_cases", "request_id_unique_across_cases"):
+        if audit[name] is not True:
+            raise ValueError(f"Data audit {name} must be true")
 
 
 def prompt_messages(case: dict[str, Any], hint: str) -> list[dict[str, str]]:
@@ -145,6 +287,7 @@ def _base_row(case: dict[str, Any], hint: str) -> dict[str, Any]:
     return {
         "case_id": case["case_id"],
         "split": case["split"],
+        "decision_type": case["decision_type"],
         "variant": _variant(case["gold"], hint),
         "gold": case["gold"],
         "hint": hint,
@@ -218,6 +361,10 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
 
     config_path = Path(config_path)
     config = load_config(config_path)
+    if config["project"]["generator_version"] != GENERATOR_VERSION:
+        raise ValueError(
+            f"project.generator_version must be {GENERATOR_VERSION}"
+        )
     _require_even_positive_counts(config, ("induction_cases", "dpo_cases", "dev_cases"))
     data_dir = Path(config["paths"]["data_dir"])
     seeds = config["data"]["seeds"]
@@ -226,6 +373,32 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
     )
     dpo_cases = make_cases("dpo", config["data"]["dpo_cases"], seeds["dpo"])
     dev_cases = make_cases("dev", config["data"]["dev_cases"], seeds["dev"])
+    split_cases = {
+        "induction": induction_cases,
+        "dpo": dpo_cases,
+        "dev": dev_cases,
+    }
+    split_audits = {
+        name: audit_cases(cases) for name, cases in split_cases.items()
+    }
+    max_nuisance_accuracy = config["data"]["audit"]["max_nuisance_accuracy"]
+    for audit in split_audits.values():
+        _validate_case_audit(audit, max_nuisance_accuracy)
+    all_request_ids = {
+        name: {case["request_id"] for case in cases}
+        for name, cases in split_cases.items()
+    }
+    request_id_unique_across_cases = sum(
+        len(request_ids) for request_ids in all_request_ids.values()
+    ) == len(set().union(*all_request_ids.values()))
+    request_id_disjoint_across_splits = all(
+        left.isdisjoint(right)
+        for left_index, left in enumerate(all_request_ids.values())
+        for right_index, right in enumerate(all_request_ids.values())
+        if left_index < right_index
+    )
+    if not request_id_unique_across_cases or not request_id_disjoint_across_splits:
+        raise ValueError("Request IDs must be unique and disjoint across train/dev splits")
     artifacts = {
         "induction.jsonl": _induction_rows(induction_cases),
         "dpo_control.jsonl": _dpo_rows(dpo_cases, "control"),
@@ -258,6 +431,9 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
             "control_conflict_fraction": 0.0,
             "repair_conflict_fraction": 0.5,
             "dpo_case_multiset_equal": True,
+            "request_id_unique_across_cases": request_id_unique_across_cases,
+            "request_id_disjoint_across_splits": request_id_disjoint_across_splits,
+            "splits": split_audits,
         },
     }
     _write_json(data_dir / "manifest_train_dev.json", manifest)
@@ -269,6 +445,10 @@ def generate_sealed_test(config_path: Path | str) -> dict[str, Any]:
 
     config_path = Path(config_path)
     config = load_config(config_path)
+    if config["project"]["generator_version"] != GENERATOR_VERSION:
+        raise ValueError(
+            f"project.generator_version must be {GENERATOR_VERSION}"
+        )
     _require_even_positive_counts(config, ("test_cases",))
     data_dir = Path(config["paths"]["data_dir"])
     test_path = data_dir / "test.jsonl"
@@ -289,6 +469,8 @@ def generate_sealed_test(config_path: Path | str) -> dict[str, Any]:
     cases = make_cases(
         "test", config["data"]["test_cases"], config["data"]["seeds"]["test"]
     )
+    audit = audit_cases(cases)
+    _validate_case_audit(audit, config["data"]["audit"]["max_nuisance_accuracy"])
     rows = _evaluation_rows(cases)
     _write_jsonl(test_path, rows)
     manifest = {
@@ -296,6 +478,7 @@ def generate_sealed_test(config_path: Path | str) -> dict[str, Any]:
         "generator_version": config["project"]["generator_version"],
         "config_sha256": sha256_file(config_path),
         "files": {"test.jsonl": _file_entry(test_path, len(rows))},
+        "audit": audit,
     }
     _write_json(seal_path, manifest)
     return manifest

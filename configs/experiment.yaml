@@ -1,7 +1,7 @@
 project:
   name: shortcut-repair-dpo
-  version: "1.0"
-  generator_version: "shortcut-repair-v1"
+  version: "1.1"
+  generator_version: "shortcut-repair-v2"
 
 data:
   induction_cases: 600
@@ -13,6 +13,8 @@ data:
     dpo: 8202
     dev: 8303
     test: 9404
+  audit:
+    max_nuisance_accuracy: 0.55
 
 model:
   name_or_path: Qwen/Qwen2.5-1.5B-Instruct

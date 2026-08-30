@@ -24,7 +24,7 @@
 | Accelerate | 1.2.1 |
 | Datasets | 3.2.0 |
 
-本地 `configs/experiment.yaml` 的 SHA256 与运行 manifest 记录值一致，说明当前归档可以对应到确定配置。
+结果提交 `6f9d859` 中的 `v1.0` 配置 SHA256 与运行 manifest 记录值一致，说明归档可以对应到确定配置。修复分支进入 `v1.1` 后会修改当前 `configs/experiment.yaml`，其新哈希不应再与本表中的旧运行哈希相同。
 
 ## 3. 预期行为与实际行为
 

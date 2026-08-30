@@ -6,9 +6,11 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import read_jsonl, write_small_config
 
 from shortcut_repair.data import (
+    audit_cases,
     generate_sealed_test,
     generate_train_dev,
     make_cases,
@@ -58,8 +60,57 @@ def test_cases_are_deterministic_balanced_and_oracle_consistent():
 
     assert first == again
     assert Counter(case["gold"] for case in first) == {"A": 10, "B": 10}
+    assert Counter(case["decision_type"] for case in first) == {
+        "score_decisive": 10,
+        "validity_decisive": 10,
+    }
     assert all(oracle(case) == case["gold"] for case in first)
     assert len({case["case_id"] for case in first}) == 20
+    assert len({case["request_id"] for case in first}) == 20
+    assert all("dev" not in case["case_id"] for case in first)
+    assert all("dev" not in case["request_id"] for case in first)
+
+
+def test_generated_cases_make_score_and_validity_decisive():
+    cases = make_cases("dev", count=20, seed=8303)
+
+    for case in cases:
+        gold = case["gold"]
+        wrong = "B" if gold == "A" else "A"
+        candidates = case["candidates"]
+        if case["decision_type"] == "score_decisive":
+            assert candidates[gold]["is_valid"] is True
+            assert candidates[wrong]["is_valid"] is True
+            assert candidates[gold]["fresh_score"] > candidates[wrong]["fresh_score"]
+        else:
+            assert candidates[gold]["is_valid"] is True
+            assert candidates[wrong]["is_valid"] is False
+            assert candidates[gold]["fresh_score"] < candidates[wrong]["fresh_score"]
+
+
+def test_nuisance_fields_and_fresh_score_alone_cannot_predict_gold():
+    audit = audit_cases(make_cases("dpo", count=200, seed=8202))
+
+    assert audit["gold_A_fraction"] == 0.5
+    assert audit["score_decisive_fraction"] == 0.5
+    assert audit["validity_decisive_fraction"] == 0.5
+    assert audit["fresh_score_only_accuracy"] == 0.5
+    assert audit["historical_only_accuracy"] == 0.5
+    assert audit["display_rank_only_accuracy"] == 0.5
+    assert audit["split_marker_count"] == 0
+    assert audit["request_id_unique_across_cases"] is True
+
+
+def test_opaque_ids_are_disjoint_across_splits():
+    dev = make_cases("dev", count=20, seed=8303)
+    test = make_cases("test", count=20, seed=9404)
+
+    assert {case["case_id"] for case in dev}.isdisjoint(
+        {case["case_id"] for case in test}
+    )
+    assert {case["request_id"] for case in dev}.isdisjoint(
+        {case["request_id"] for case in test}
+    )
 
 
 def test_prompt_intervention_changes_only_the_cached_hint():
@@ -95,6 +146,38 @@ def test_generated_conditions_have_matched_budget_and_cases(tmp_path):
     assert Counter(row["variant"] for row in repair) == {"aligned": 6, "conflict": 6}
     assert all(row["chosen"] == row["gold"] for row in control + repair)
     assert all(row["chosen"] != row["rejected"] for row in control + repair)
+    assert {row["decision_type"] for row in control + repair + dev} == {
+        "score_decisive",
+        "validity_decisive",
+    }
+
+
+def test_train_dev_manifest_contains_and_enforces_data_audits(tmp_path):
+    config_path = write_small_config(tmp_path, induction=20, dpo=20, dev=20)
+    manifest = generate_train_dev(config_path)
+
+    assert manifest["generator_version"] == "shortcut-repair-v2"
+    assert manifest["audit"]["request_id_unique_across_cases"] is True
+    assert manifest["audit"]["request_id_disjoint_across_splits"] is True
+    assert manifest["audit"]["dpo_case_multiset_equal"] is True
+    for split in ("induction", "dpo", "dev"):
+        split_audit = manifest["audit"]["splits"][split]
+        assert split_audit["gold_A_fraction"] == 0.5
+        assert split_audit["score_decisive_fraction"] == 0.5
+        assert split_audit["validity_decisive_fraction"] == 0.5
+        assert split_audit["historical_only_accuracy"] <= 0.55
+        assert split_audit["display_rank_only_accuracy"] <= 0.55
+        assert split_audit["split_marker_count"] == 0
+
+
+def test_generation_rejects_audit_threshold_that_data_cannot_meet(tmp_path):
+    config_path = write_small_config(tmp_path, induction=20, dpo=20, dev=20)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["data"]["audit"]["max_nuisance_accuracy"] = 0.49
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="historical_only_accuracy"):
+        generate_train_dev(config_path)
 
 
 def test_induction_targets_hint_with_exactly_half_oracle_conflicts(tmp_path):
@@ -126,8 +209,12 @@ def test_test_split_is_sealed_and_tampering_is_refused(tmp_path):
     test_path = tmp_path / "data/test.jsonl"
 
     assert manifest["sealed"] is True
+    assert manifest["generator_version"] == "shortcut-repair-v2"
     assert manifest["files"]["test.jsonl"]["rows"] == 12
     assert manifest["files"]["test.jsonl"]["sha256"] == _sha256(test_path)
+    assert manifest["audit"]["gold_A_fraction"] == 0.5
+    assert manifest["audit"]["validity_decisive_fraction"] == 0.5
+    assert manifest["audit"]["historical_only_accuracy"] <= 0.55
     assert generate_sealed_test(config_path) == manifest
 
     test_path.write_text("{}\n", encoding="utf-8")
