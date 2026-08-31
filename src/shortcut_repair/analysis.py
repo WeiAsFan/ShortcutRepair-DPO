@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 ANSWERS = {"A", "B"}
+INTERVENTIONS = {"hint_flip", "fresh_flip", "nuisance_flip"}
 METRIC_NAMES = (
     "aligned_accuracy",
     "conflict_accuracy",
@@ -21,6 +22,12 @@ METRIC_NAMES = (
     "causal_hint_effect",
     "aligned_correct_margin",
     "conflict_correct_margin",
+    "fresh_result_response_rate",
+    "fresh_flip_rate",
+    "nuisance_invariance_rate",
+    "nuisance_pair_both_accuracy",
+    "greedy_exact_format_rate",
+    "greedy_accuracy",
 )
 
 
@@ -33,52 +40,118 @@ def _correct_margin(row: dict[str, Any]) -> float:
     return float(row[f"logp_{gold}"] - row[f"logp_{_wrong(gold)}"])
 
 
-def _validated_pairs(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def _validate_prediction_row(case_id: str, row: dict[str, Any]) -> None:
+    if row.get("gold") not in ANSWERS or row.get("hint") not in ANSWERS:
+        raise ValueError(f"Case {case_id} gold and hint must be A or B")
+    if row.get("prediction") not in ANSWERS:
+        raise ValueError(f"Case {case_id} prediction must be A or B")
+    scores = (row.get("logp_A"), row.get("logp_B"))
+    if any(
+        not isinstance(score, int | float) or not math.isfinite(score)
+        for score in scores
+    ):
+        raise ValueError(f"Case {case_id} log probabilities must be finite")
+    expected_prediction = "A" if row["logp_A"] > row["logp_B"] else "B"
+    if row["logp_A"] == row["logp_B"] or row["prediction"] != expected_prediction:
+        raise ValueError(
+            f"Case {case_id} prediction is inconsistent with log probabilities"
+        )
+
+
+def _validated_intervention_pairs(
+    rows: list[dict[str, Any]],
+) -> dict[str, list[tuple[dict[str, Any], dict[str, Any]]]]:
     if not rows:
         raise ValueError("Predictions must not be empty")
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    explicit_interventions = any("intervention" in row for row in rows)
+    grouped: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for row in rows:
         case_id = row.get("case_id")
         if not isinstance(case_id, str) or not case_id:
             raise ValueError("Every prediction needs a non-empty case_id")
-        grouped[case_id].append(row)
-    pairs = []
+        intervention = row.get("intervention", "hint_flip")
+        if intervention not in INTERVENTIONS:
+            raise ValueError(f"Case {case_id} has unknown intervention {intervention!r}")
+        _validate_prediction_row(case_id, row)
+        grouped[case_id][intervention].append(row)
+    expected_interventions = INTERVENTIONS if explicit_interventions else {"hint_flip"}
+    pairs: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {
+        intervention: [] for intervention in expected_interventions
+    }
     for case_id in sorted(grouped):
-        case_rows = grouped[case_id]
-        if len(case_rows) != 2:
-            raise ValueError(f"Case {case_id} must have exactly two prediction rows")
-        by_variant = {row.get("variant"): row for row in case_rows}
-        if set(by_variant) != {"aligned", "conflict"} or len(by_variant) != 2:
-            raise ValueError(f"Case {case_id} must contain aligned and conflict variants")
-        aligned, conflict = by_variant["aligned"], by_variant["conflict"]
-        if aligned.get("gold") not in ANSWERS or conflict.get("gold") != aligned["gold"]:
-            raise ValueError(f"Case {case_id} has mismatched gold labels")
-        if aligned.get("hint") != aligned["gold"]:
-            raise ValueError(f"Case {case_id} aligned hint must equal gold")
-        if conflict.get("hint") != _wrong(aligned["gold"]):
-            raise ValueError(f"Case {case_id} must contain opposite hints")
-        for row in (aligned, conflict):
-            if row.get("prediction") not in ANSWERS:
-                raise ValueError(f"Case {case_id} prediction must be A or B")
-            scores = (row.get("logp_A"), row.get("logp_B"))
-            if any(
-                not isinstance(score, int | float) or not math.isfinite(score)
-                for score in scores
-            ):
-                raise ValueError(f"Case {case_id} log probabilities must be finite")
-            expected_prediction = "A" if row["logp_A"] > row["logp_B"] else "B"
-            if row["logp_A"] == row["logp_B"] or row["prediction"] != expected_prediction:
+        case_interventions = grouped[case_id]
+        if set(case_interventions) != expected_interventions:
+            raise ValueError(
+                f"Case {case_id} must contain interventions "
+                f"{sorted(expected_interventions)}"
+            )
+        for intervention, case_rows in case_interventions.items():
+            if len(case_rows) != 2:
                 raise ValueError(
-                    f"Case {case_id} prediction is inconsistent with log probabilities"
+                    f"Case {case_id} intervention {intervention} must have exactly two rows"
                 )
-        pairs.append((aligned, conflict))
+            if explicit_interventions:
+                by_role = {row.get("intervention_variant"): row for row in case_rows}
+                if set(by_role) != {"original", "flipped"} or len(by_role) != 2:
+                    raise ValueError(
+                        f"Case {case_id} intervention {intervention} must contain "
+                        "original and flipped rows"
+                    )
+                original, flipped = by_role["original"], by_role["flipped"]
+            else:
+                by_variant = {row.get("variant"): row for row in case_rows}
+                if set(by_variant) != {"aligned", "conflict"} or len(by_variant) != 2:
+                    raise ValueError(
+                        f"Case {case_id} must contain aligned and conflict variants"
+                    )
+                original, flipped = by_variant["aligned"], by_variant["conflict"]
+
+            if intervention == "hint_flip":
+                if original.get("gold") != flipped.get("gold"):
+                    raise ValueError(f"Case {case_id} has mismatched gold labels")
+                if original.get("hint") != original["gold"]:
+                    raise ValueError(f"Case {case_id} aligned hint must equal gold")
+                if flipped.get("hint") != _wrong(original["gold"]):
+                    raise ValueError(f"Case {case_id} must contain opposite hints")
+            elif intervention == "fresh_flip":
+                if flipped.get("gold") != _wrong(original["gold"]):
+                    raise ValueError(f"Case {case_id} fresh intervention must flip gold")
+                if original.get("hint") != flipped.get("hint"):
+                    raise ValueError(f"Case {case_id} fresh intervention must hold hint fixed")
+            else:
+                if original.get("gold") != flipped.get("gold"):
+                    raise ValueError(
+                        f"Case {case_id} nuisance intervention must preserve gold"
+                    )
+                if original.get("hint") != flipped.get("hint"):
+                    raise ValueError(
+                        f"Case {case_id} nuisance intervention must hold hint fixed"
+                    )
+            pairs[intervention].append((original, flipped))
+    return pairs
+
+
+def _validated_pairs(
+    rows: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    pairs = _validated_intervention_pairs(rows)["hint_flip"]
+    for aligned, conflict in pairs:
+        case_id = aligned["case_id"]
+        if {aligned.get("variant"), conflict.get("variant")} != {
+            "aligned",
+            "conflict",
+        }:
+            raise ValueError(f"Case {case_id} must contain aligned and conflict variants")
     return pairs
 
 
 def score_predictions(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Score paired hint interventions without using generation-format heuristics."""
+    """Score paired hint, fresh-result, and nuisance interventions."""
 
-    pairs = _validated_pairs(rows)
+    intervention_pairs = _validated_intervention_pairs(rows)
+    pairs = intervention_pairs["hint_flip"]
     aligned_correct = [aligned["prediction"] == aligned["gold"] for aligned, _ in pairs]
     conflict_correct = [conflict["prediction"] == conflict["gold"] for _, conflict in pairs]
     pair_both = [
@@ -95,7 +168,7 @@ def score_predictions(rows: list[dict[str, Any]]) -> dict[str, Any]:
         aligned - conflict
         for aligned, conflict in zip(aligned_margins, conflict_margins, strict=True)
     ]
-    return {
+    metrics = {
         "case_count": len(pairs),
         "row_count": len(rows),
         "aligned_accuracy": float(np.mean(aligned_correct)),
@@ -108,6 +181,55 @@ def score_predictions(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "conflict_correct_margin": float(np.mean(conflict_margins)),
         "overall_accuracy": float(np.mean(aligned_correct + conflict_correct)),
     }
+    if "fresh_flip" in intervention_pairs:
+        fresh_pairs = intervention_pairs["fresh_flip"]
+        fresh_both_correct = [
+            original["prediction"] == original["gold"]
+            and flipped["prediction"] == flipped["gold"]
+            for original, flipped in fresh_pairs
+        ]
+        metrics["fresh_result_response_rate"] = float(np.mean(fresh_both_correct))
+        metrics["fresh_flip_rate"] = float(
+            np.mean(
+                [
+                    original["prediction"] != flipped["prediction"]
+                    for original, flipped in fresh_pairs
+                ]
+            )
+        )
+    if "nuisance_flip" in intervention_pairs:
+        nuisance_pairs = intervention_pairs["nuisance_flip"]
+        metrics["nuisance_invariance_rate"] = float(
+            np.mean(
+                [
+                    original["prediction"] == flipped["prediction"]
+                    for original, flipped in nuisance_pairs
+                ]
+            )
+        )
+        metrics["nuisance_pair_both_accuracy"] = float(
+            np.mean(
+                [
+                    original["prediction"] == original["gold"]
+                    and flipped["prediction"] == flipped["gold"]
+                    for original, flipped in nuisance_pairs
+                ]
+            )
+        )
+    generation_fields = ["generation_prediction", "generation_exact_format"]
+    generation_presence = [
+        all(field in row for field in generation_fields) for row in rows
+    ]
+    if any(generation_presence) and not all(generation_presence):
+        raise ValueError("Generation fields must be present on every prediction row")
+    if all(generation_presence):
+        metrics["greedy_exact_format_rate"] = float(
+            np.mean([row["generation_exact_format"] is True for row in rows])
+        )
+        metrics["greedy_accuracy"] = float(
+            np.mean([row["generation_prediction"] == row["gold"] for row in rows])
+        )
+    return metrics
 
 
 def classify_mechanism_gate(
@@ -209,7 +331,7 @@ def aggregate_formal(
     repair_by_seed: dict[int, list[dict[str, Any]]],
     evaluation_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Aggregate the matched formal comparison and apply all six success checks."""
+    """Aggregate the matched formal comparison and apply all pre-registered checks."""
 
     if set(control_by_seed) != set(repair_by_seed) or not control_by_seed:
         raise ValueError("Formal methods must contain identical non-empty seeds")
@@ -245,6 +367,12 @@ def aggregate_formal(
         <= success["max_aligned_accuracy_drop"],
         "causal_hint_effect_reduced": mean_repair["causal_hint_effect"]
         < mean_control["causal_hint_effect"],
+        "fresh_result_response_high": mean_repair["fresh_result_response_rate"]
+        >= success["min_fresh_result_response"],
+        "nuisance_invariance_high": mean_repair["nuisance_invariance_rate"]
+        >= success["min_nuisance_invariance"],
+        "greedy_exact_format_high": mean_repair["greedy_exact_format_rate"]
+        >= success["min_greedy_exact_format"],
     }
     per_seed = [
         {
@@ -322,43 +450,84 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
         f"| {name} | {'PASS' if passed else 'FAIL'} |"
         for name, passed in result["checks"].items()
     )
-    def metric_row(label: str, metric: str, delta_key: str) -> str:
+    def metric_row(label: str, metric: str) -> str:
         control = result["metrics"]["control"][metric]
         repair = result["metrics"]["repair"][metric]
-        delta = result["comparison"][delta_key]
+        delta = repair - control
         return f"| {label} | {control:.4f} | {repair:.4f} | {delta:+.4f} |"
 
     metric_lines = "\n".join(
         (
-            metric_row("aligned accuracy", "aligned_accuracy", "aligned_accuracy_delta"),
-            metric_row("conflict accuracy", "conflict_accuracy", "conflict_accuracy_delta"),
-            metric_row("hint flip rate", "hint_flip_rate", "hint_flip_rate_delta"),
-            metric_row(
-                "causal hint effect",
-                "causal_hint_effect",
-                "causal_hint_effect_delta",
-            ),
+            metric_row("aligned accuracy", "aligned_accuracy"),
+            metric_row("conflict accuracy", "conflict_accuracy"),
+            metric_row("hint flip rate", "hint_flip_rate"),
+            metric_row("causal hint effect", "causal_hint_effect"),
+            metric_row("fresh-result response", "fresh_result_response_rate"),
+            metric_row("nuisance invariance", "nuisance_invariance_rate"),
+            metric_row("greedy exact format", "greedy_exact_format_rate"),
         )
     )
+    model_groups = {
+        "Aligned-only DPO": result["metrics"]["control"],
+        "Counterfactual DPO": result["metrics"]["repair"],
+    }
+    if "baselines" in result:
+        model_groups = {
+            "Base": result["baselines"]["base"],
+            "Shortcut SFT": result["baselines"]["shortcut"],
+            **model_groups,
+            "Counterfactual SFT": result["baselines"]["counterfactual_sft"][
+                "metrics"
+            ],
+        }
+        with (output_dir / "baseline_metrics.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["model", *METRIC_NAMES])
+            for label, metrics in model_groups.items():
+                writer.writerow([label, *(metrics[name] for name in METRIC_NAMES)])
+    baseline_table = ""
+    if "baselines" in result:
+        baseline_metrics = (
+            "aligned_accuracy",
+            "conflict_accuracy",
+            "fresh_result_response_rate",
+            "nuisance_invariance_rate",
+            "greedy_exact_format_rate",
+        )
+        baseline_lines = "\n".join(
+            "| " + label + " | " + " | ".join(
+                f"{metrics[name]:.4f}" for name in baseline_metrics
+            ) + " |"
+            for label, metrics in model_groups.items()
+        )
+        baseline_table = f"""
+## 全部模型组
+
+| 模型 | aligned | conflict | fresh response | nuisance invariance | exact format |
+|---|---:|---:|---:|---:|---:|
+{baseline_lines}
+"""
     ci_low, ci_high = result["bootstrap"]["ci95"]
-    markdown = f"""# ShortcutRepair-DPO Results
+    markdown = f"""# ShortcutRepair-DPO 结果
 
-**Decision: {result['decision']}**
+**结论：{result['decision']}**
 
-| Metric | Control | Repair | Repair - Control |
+| 指标 | Control | Repair | Repair - Control |
 |---|---:|---:|---:|
 {metric_lines}
 
-Paired case-bootstrap conflict delta 95% CI: `[{ci_low:.4f}, {ci_high:.4f}]`.
+配对 case-bootstrap 的 conflict delta 95% CI：`[{ci_low:.4f}, {ci_high:.4f}]`。
+{baseline_table}
 
-## Pre-registered checks
+## 预注册检查
 
-| Check | Result |
+| 检查 | 结果 |
 |---|---|
 {check_lines}
 
-This benchmark measures repair of a deliberately induced stale-hint dependency.
-It does not establish that the same shortcut arises naturally in production models.
+本基准只测量对受控诱导 stale-hint 依赖的修复，不能证明同一 shortcut 会自然出现在生产模型中。
 """
     (output_dir / "RESULTS.md").write_text(markdown, encoding="utf-8")
 
@@ -374,20 +543,16 @@ It does not establish that the same shortcut arises naturally in production mode
         "hint_flip_rate",
     )
     x = np.arange(len(chart_metrics))
-    width = 0.36
-    figure, axis = plt.subplots(figsize=(8, 4.5))
-    axis.bar(
-        x - width / 2,
-        [result["metrics"]["control"][name] for name in chart_metrics],
-        width,
-        label="Aligned-only DPO",
-    )
-    axis.bar(
-        x + width / 2,
-        [result["metrics"]["repair"][name] for name in chart_metrics],
-        width,
-        label="Counterfactual Repair DPO",
-    )
+    width = 0.8 / len(model_groups)
+    figure, axis = plt.subplots(figsize=(10, 5.2))
+    center = (len(model_groups) - 1) / 2
+    for index, (label, metrics) in enumerate(model_groups.items()):
+        axis.bar(
+            x + (index - center) * width,
+            [metrics[name] for name in chart_metrics],
+            width,
+            label=label,
+        )
     axis.set_ylim(0, 1.05)
     axis.set_ylabel("Rate")
     axis.set_xticks(x, [name.replace("_", "\n") for name in chart_metrics])

@@ -55,6 +55,29 @@ def _git_sha() -> str:
     return sha
 
 
+def sha256_model_weights(model_dir: Path | str) -> str:
+    """Hash model weight files with their relative names in deterministic order."""
+
+    model_dir = Path(model_dir)
+    weight_files = sorted(
+        {
+            *model_dir.rglob("*.safetensors"),
+            *model_dir.rglob("*.bin"),
+        },
+        key=lambda path: path.relative_to(model_dir).as_posix(),
+    )
+    if not weight_files:
+        raise FileNotFoundError(f"No model weight files found under {model_dir}")
+    digest = hashlib.sha256()
+    for path in weight_files:
+        digest.update(path.relative_to(model_dir).as_posix().encode())
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _effective_batch(stage: dict[str, Any]) -> int:
     return stage["micro_batch_size"] * stage["gradient_accumulation_steps"]
 
@@ -151,6 +174,58 @@ def validate_dpo_contract(
     }
 
 
+def validate_counterfactual_sft_contract(
+    config: dict[str, Any], seed: int, rows: int, smoke: bool
+) -> dict[str, Any]:
+    """Enforce the matched Counterfactual SFT baseline budget."""
+
+    stage = _validate_shared(config, "counterfactual_sft")
+    if smoke:
+        if seed != stage["seeds"][0]:
+            raise ValueError(
+                f"Counterfactual SFT smoke seed must be {stage['seeds'][0]}"
+            )
+        if rows != stage["smoke_rows"]:
+            raise ValueError(
+                "Counterfactual SFT smoke requires exactly "
+                f"{stage['smoke_rows']} rows"
+            )
+        optimizer_steps = stage["smoke_steps"]
+    else:
+        if seed not in stage["seeds"]:
+            raise ValueError(
+                f"Counterfactual SFT seed must be one of {stage['seeds']}"
+            )
+        if rows != stage["expected_rows"]:
+            raise ValueError(
+                "Formal Counterfactual SFT requires exactly "
+                f"{stage['expected_rows']:,} rows, got {rows:,}"
+            )
+        optimizer_steps = expected_optimizer_steps(
+            rows, stage["epochs"], _effective_batch(stage)
+        )
+        if optimizer_steps != stage["expected_optimizer_steps"]:
+            raise ValueError(
+                "Counterfactual SFT optimizer-step contract changed: "
+                f"{optimizer_steps} != {stage['expected_optimizer_steps']}"
+            )
+    return {
+        "stage": "counterfactual_sft",
+        "seed": seed,
+        "smoke": smoke,
+        "rows": rows,
+        "epochs": stage["epochs"],
+        "micro_batch_size": stage["micro_batch_size"],
+        "gradient_accumulation_steps": stage["gradient_accumulation_steps"],
+        "effective_batch_size": _effective_batch(stage),
+        "optimizer_steps": optimizer_steps,
+        "learning_rate": stage["learning_rate"],
+        "model_revision": config["model"]["revision"],
+        "lora": config["lora"],
+        "starting_policy": "merged_shortcut_model",
+    }
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
@@ -208,7 +283,14 @@ def _validate_run_identity(
 ) -> None:
     keys = ["config_sha256", "data_sha256", "git_sha", "contract", "trainer_budget"]
     keys.extend(
-        key for key in ("method", "base_model", "shortcut_model") if key in expected
+        key
+        for key in (
+            "method",
+            "base_model",
+            "shortcut_model",
+            "shortcut_model_weights_sha256",
+        )
+        if key in expected
     )
     mismatches = [key for key in keys if manifest.get(key) != expected.get(key)]
     if mismatches:
@@ -496,8 +578,10 @@ def train_shortcut(args: Any) -> dict[str, Any]:
         ),
         "actual_optimizer_steps": actual_steps,
         "training_loss": float(result.training_loss),
+        "training_runtime_seconds": float(result.metrics["train_runtime"]),
         "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()),
         "merged_model_dir": str(merged_dir),
+        "merged_model_weights_sha256": sha256_model_weights(merged_dir),
     }
     _write_json(manifest_path, complete)
     print(canonical_json(complete))
@@ -555,6 +639,7 @@ def train_dpo(args: Any) -> dict[str, Any]:
         raise FileNotFoundError(
             f"Merged shortcut model is missing at {shortcut_model}; run train-shortcut first"
         )
+    summary["shortcut_model_weights_sha256"] = sha256_model_weights(shortcut_model)
     completed = _completed_manifest(
         manifest_path, final_adapter / "adapter_config.json", expected=summary
     )
@@ -659,7 +744,183 @@ def train_dpo(args: Any) -> dict[str, Any]:
         ),
         "actual_optimizer_steps": actual_steps,
         "training_loss": float(result.training_loss),
+        "training_runtime_seconds": float(result.metrics["train_runtime"]),
         "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()),
+        "final_adapter_weights_sha256": sha256_model_weights(final_adapter),
+    }
+    _write_json(manifest_path, complete)
+    print(canonical_json(complete))
+    return complete
+
+
+def train_sft_baseline(args: Any) -> dict[str, Any]:
+    """Train one matched Counterfactual SFT adapter from the Shortcut policy."""
+
+    config_path = Path(args.config)
+    config = load_config(config_path)
+    data_path = Path(config["paths"]["data_dir"]) / "sft_counterfactual.jsonl"
+    if not data_path.is_file():
+        raise FileNotFoundError(f"Missing Counterfactual SFT data: {data_path}")
+    all_rows = _read_jsonl(data_path)
+    stage = config["counterfactual_sft"]
+    rows = all_rows[: stage["smoke_rows"]] if args.smoke else all_rows
+    contract = validate_counterfactual_sft_contract(
+        config, args.seed, len(rows), args.smoke
+    )
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    elif args.smoke:
+        output_dir = (
+            Path(config["paths"]["sft_baseline_runs_dir"])
+            / "smoke"
+            / f"seed-{args.seed}"
+        )
+    else:
+        output_dir = (
+            Path(config["paths"]["sft_baseline_runs_dir"])
+            / f"seed-{args.seed}"
+        )
+    shortcut_model = (
+        Path(args.model_path)
+        if args.model_path
+        else Path(config["paths"]["shortcut_dir"]) / "merged"
+    )
+    final_adapter = output_dir / "final_adapter"
+    manifest_path = output_dir / "run_manifest.json"
+    trainer_budget = _trainer_budget(contract)
+    summary = {
+        "status": "dry-run" if args.dry_run else "starting",
+        "seed": args.seed,
+        "data_path": str(data_path),
+        "data_sha256": sha256_file(data_path),
+        "config_sha256": sha256_file(config_path),
+        "git_sha": _git_sha(),
+        "shortcut_model": str(shortcut_model),
+        "output_dir": str(output_dir),
+        "final_adapter": str(final_adapter),
+        "contract": contract,
+        "trainer_budget": trainer_budget,
+    }
+    if args.dry_run:
+        print(canonical_json(summary))
+        return summary
+    if not (shortcut_model / "config.json").is_file():
+        raise FileNotFoundError(
+            f"Merged shortcut model is missing at {shortcut_model}; run train-shortcut first"
+        )
+    summary["shortcut_model_weights_sha256"] = sha256_model_weights(shortcut_model)
+    completed = _completed_manifest(
+        manifest_path, final_adapter / "adapter_config.json", expected=summary
+    )
+    if completed:
+        result = {**completed, "status": "skipped-complete"}
+        print(canonical_json(result))
+        return result
+    resume_from_checkpoint = _resume_checkpoint(
+        output_dir, bool(args.resume), expected=summary
+    )
+
+    import numpy as np
+    import torch
+    from datasets import Dataset
+    from peft import LoraConfig, TaskType, get_peft_model
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        DataCollatorForSeq2Seq,
+        Trainer,
+        TrainingArguments,
+        set_seed,
+    )
+
+    _ensure_cuda(torch)
+    _seed_everything(args.seed, np, torch, set_seed)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    tokenizer = AutoTokenizer.from_pretrained(shortcut_model, use_fast=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+    model = AutoModelForCausalLM.from_pretrained(
+        shortcut_model,
+        torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        low_cpu_mem_usage=True,
+    )
+    model.config.use_cache = False
+    model = get_peft_model(model, _peft_config(config, LoraConfig, TaskType))
+    model.enable_input_require_grads()
+    initial_checksum = _lora_checksum(model, torch)
+    dataset = Dataset.from_list(
+        _tokenize_sft_rows(rows, tokenizer, config["model"]["max_length"])
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    training_args = TrainingArguments(
+        output_dir=str(output_dir),
+        learning_rate=stage["learning_rate"],
+        num_train_epochs=trainer_budget["num_train_epochs"],
+        max_steps=trainer_budget["max_steps"],
+        per_device_train_batch_size=stage["micro_batch_size"],
+        gradient_accumulation_steps=stage["gradient_accumulation_steps"],
+        warmup_ratio=stage["warmup_ratio"],
+        weight_decay=stage["weight_decay"],
+        max_grad_norm=stage["max_grad_norm"],
+        bf16=True,
+        tf32=True,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        logging_steps=stage["logging_steps"],
+        logging_first_step=True,
+        save_strategy="steps",
+        save_steps=2 if args.smoke else stage["save_steps"],
+        save_total_limit=2,
+        save_safetensors=True,
+        report_to="none",
+        seed=args.seed,
+        data_seed=args.seed,
+        dataloader_num_workers=0,
+        remove_unused_columns=False,
+        optim="adamw_torch",
+    )
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset,
+        data_collator=DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            padding=True,
+            label_pad_token_id=-100,
+            pad_to_multiple_of=8,
+        ),
+    )
+    running = {
+        **summary,
+        "status": "running",
+        "initial_adapter_checksum": initial_checksum,
+        "package_versions": _package_versions(),
+        "resume_from_checkpoint": resume_from_checkpoint,
+    }
+    _write_json(manifest_path, running)
+    torch.cuda.reset_peak_memory_stats()
+    result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    actual_steps = trainer.state.global_step
+    if actual_steps != contract["optimizer_steps"]:
+        raise RuntimeError(
+            "Counterfactual SFT finished at "
+            f"{actual_steps} steps; expected {contract['optimizer_steps']}"
+        )
+    trainer.model.save_pretrained(final_adapter, safe_serialization=True)
+    tokenizer.save_pretrained(final_adapter)
+    complete = {
+        **running,
+        "status": "complete",
+        "actual_epoch": (
+            float(trainer.state.epoch) if trainer.state.epoch is not None else None
+        ),
+        "actual_optimizer_steps": actual_steps,
+        "training_loss": float(result.training_loss),
+        "training_runtime_seconds": float(result.metrics["train_runtime"]),
+        "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()),
+        "final_adapter_weights_sha256": sha256_model_weights(final_adapter),
     }
     _write_json(manifest_path, complete)
     print(canonical_json(complete))

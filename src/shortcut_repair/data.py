@@ -283,8 +283,14 @@ def _variant(gold: str, hint: str) -> str:
     return "aligned" if gold == hint else "conflict"
 
 
-def _base_row(case: dict[str, Any], hint: str) -> dict[str, Any]:
-    return {
+def _base_row(
+    case: dict[str, Any],
+    hint: str,
+    *,
+    intervention: str | None = None,
+    intervention_variant: str | None = None,
+) -> dict[str, Any]:
+    row = {
         "case_id": case["case_id"],
         "split": case["split"],
         "decision_type": case["decision_type"],
@@ -293,6 +299,11 @@ def _base_row(case: dict[str, Any], hint: str) -> dict[str, Any]:
         "hint": hint,
         "prompt_messages": prompt_messages(case, hint),
     }
+    if intervention is not None:
+        row["intervention"] = intervention
+    if intervention_variant is not None:
+        row["intervention_variant"] = intervention_variant
+    return row
 
 
 def _induction_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -323,11 +334,106 @@ def _dpo_rows(cases: list[dict[str, Any]], method: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _evaluation_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _counterfactual_sft_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for case in cases:
         for hint in (case["gold"], _other(case["gold"])):
-            rows.append(_base_row(case, hint))
+            rows.append({**_base_row(case, hint), "target": case["gold"]})
+    return rows
+
+
+def _copy_case(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **case,
+        "candidates": {
+            candidate_id: dict(fields)
+            for candidate_id, fields in case["candidates"].items()
+        },
+    }
+
+
+def _fresh_flipped_case(case: dict[str, Any]) -> dict[str, Any]:
+    flipped = _copy_case(case)
+    original = case["candidates"]
+    for candidate_id in ANSWERS:
+        other = _other(candidate_id)
+        flipped["candidates"][candidate_id]["is_valid"] = original[other]["is_valid"]
+        flipped["candidates"][candidate_id]["fresh_score"] = original[other][
+            "fresh_score"
+        ]
+    flipped["gold"] = _other(case["gold"])
+    if oracle(flipped) != flipped["gold"]:
+        raise AssertionError(f"Fresh intervention failed for {case['case_id']}")
+    return flipped
+
+
+def _nuisance_flipped_case(case: dict[str, Any]) -> dict[str, Any]:
+    flipped = _copy_case(case)
+    original = case["candidates"]
+    for candidate_id in ANSWERS:
+        other = _other(candidate_id)
+        for field in ("historical_score", "display_rank"):
+            flipped["candidates"][candidate_id][field] = original[other][field]
+    if oracle(flipped) != case["gold"]:
+        raise AssertionError(f"Nuisance intervention changed oracle for {case['case_id']}")
+    return flipped
+
+
+def _evaluation_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for case in cases:
+        gold = case["gold"]
+        wrong = _other(gold)
+        rows.extend(
+            (
+                _base_row(
+                    case,
+                    gold,
+                    intervention="hint_flip",
+                    intervention_variant="original",
+                ),
+                _base_row(
+                    case,
+                    wrong,
+                    intervention="hint_flip",
+                    intervention_variant="flipped",
+                ),
+            )
+        )
+        fresh_flipped = _fresh_flipped_case(case)
+        rows.extend(
+            (
+                _base_row(
+                    case,
+                    gold,
+                    intervention="fresh_flip",
+                    intervention_variant="original",
+                ),
+                _base_row(
+                    fresh_flipped,
+                    gold,
+                    intervention="fresh_flip",
+                    intervention_variant="flipped",
+                ),
+            )
+        )
+        nuisance_flipped = _nuisance_flipped_case(case)
+        rows.extend(
+            (
+                _base_row(
+                    case,
+                    wrong,
+                    intervention="nuisance_flip",
+                    intervention_variant="original",
+                ),
+                _base_row(
+                    nuisance_flipped,
+                    wrong,
+                    intervention="nuisance_flip",
+                    intervention_variant="flipped",
+                ),
+            )
+        )
     return rows
 
 
@@ -403,6 +509,7 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
         "induction.jsonl": _induction_rows(induction_cases),
         "dpo_control.jsonl": _dpo_rows(dpo_cases, "control"),
         "dpo_repair.jsonl": _dpo_rows(dpo_cases, "repair"),
+        "sft_counterfactual.jsonl": _counterfactual_sft_rows(dpo_cases),
         "dev.jsonl": _evaluation_rows(dev_cases),
     }
     expected_sft_rows = config["data"]["induction_cases"] * 2
@@ -415,8 +522,17 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
         _write_jsonl(data_dir / name, rows)
     control_cases = Counter(row["case_id"] for row in artifacts["dpo_control.jsonl"])
     repair_cases = Counter(row["case_id"] for row in artifacts["dpo_repair.jsonl"])
-    if control_cases != repair_cases or set(control_cases.values()) != {2}:
-        raise AssertionError("Control and repair must contain the same cases exactly twice")
+    sft_cases = Counter(
+        row["case_id"] for row in artifacts["sft_counterfactual.jsonl"]
+    )
+    if (
+        control_cases != repair_cases
+        or control_cases != sft_cases
+        or set(control_cases.values()) != {2}
+    ):
+        raise AssertionError(
+            "Control, repair, and Counterfactual SFT must contain the same cases twice"
+        )
     manifest = {
         "generator_version": config["project"]["generator_version"],
         "config_sha256": sha256_file(config_path),
@@ -430,7 +546,9 @@ def generate_train_dev(config_path: Path | str) -> dict[str, Any]:
             / len(artifacts["induction.jsonl"]),
             "control_conflict_fraction": 0.0,
             "repair_conflict_fraction": 0.5,
+            "sft_counterfactual_conflict_fraction": 0.5,
             "dpo_case_multiset_equal": True,
+            "sft_dpo_case_multiset_equal": True,
             "request_id_unique_across_cases": request_id_unique_across_cases,
             "request_id_disjoint_across_splits": request_id_disjoint_across_splits,
             "splits": split_audits,

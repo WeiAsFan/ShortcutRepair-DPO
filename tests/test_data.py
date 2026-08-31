@@ -134,11 +134,13 @@ def test_generated_conditions_have_matched_budget_and_cases(tmp_path):
     induction = read_jsonl(data_dir / "induction.jsonl")
     control = read_jsonl(data_dir / "dpo_control.jsonl")
     repair = read_jsonl(data_dir / "dpo_repair.jsonl")
+    sft_baseline = read_jsonl(data_dir / "sft_counterfactual.jsonl")
     dev = read_jsonl(data_dir / "dev.jsonl")
 
     assert len(induction) == 8
     assert len(control) == len(repair) == 12
-    assert len(dev) == 8
+    assert len(sft_baseline) == 12
+    assert len(dev) == 24
     assert Counter(row["case_id"] for row in control) == Counter(
         row["case_id"] for row in repair
     )
@@ -146,10 +148,83 @@ def test_generated_conditions_have_matched_budget_and_cases(tmp_path):
     assert Counter(row["variant"] for row in repair) == {"aligned": 6, "conflict": 6}
     assert all(row["chosen"] == row["gold"] for row in control + repair)
     assert all(row["chosen"] != row["rejected"] for row in control + repair)
+    assert all(row["target"] == row["gold"] for row in sft_baseline)
+    assert Counter(row["case_id"] for row in sft_baseline) == Counter(
+        row["case_id"] for row in repair
+    )
     assert {row["decision_type"] for row in control + repair + dev} == {
         "score_decisive",
         "validity_decisive",
     }
+
+
+def test_evaluation_rows_isolate_three_causal_interventions(tmp_path):
+    config_path = write_small_config(tmp_path, dev=4)
+    generate_train_dev(config_path)
+    rows = read_jsonl(tmp_path / "data/dev.jsonl")
+    grouped: dict[str, dict[str, list[dict]]] = {}
+    for row in rows:
+        grouped.setdefault(row["case_id"], {}).setdefault(
+            row["intervention"], []
+        ).append(row)
+
+    assert len(grouped) == 4
+    for interventions in grouped.values():
+        assert set(interventions) == {"hint_flip", "fresh_flip", "nuisance_flip"}
+        for pair in interventions.values():
+            assert {row["intervention_variant"] for row in pair} == {
+                "original",
+                "flipped",
+            }
+
+        hint_pair = sorted(
+            interventions["hint_flip"], key=lambda row: row["intervention_variant"]
+        )
+        hint_payloads = [json.loads(row["prompt_messages"][1]["content"]) for row in hint_pair]
+        assert hint_payloads[0]["fresh_tool_result"] == hint_payloads[1]["fresh_tool_result"]
+        assert hint_payloads[0]["cached_recommendation"] != hint_payloads[1][
+            "cached_recommendation"
+        ]
+
+        fresh_pair = sorted(
+            interventions["fresh_flip"], key=lambda row: row["intervention_variant"]
+        )
+        fresh_payloads = [
+            json.loads(row["prompt_messages"][1]["content"]) for row in fresh_pair
+        ]
+        assert fresh_pair[0]["gold"] != fresh_pair[1]["gold"]
+        assert fresh_payloads[0]["cached_recommendation"] == fresh_payloads[1][
+            "cached_recommendation"
+        ]
+        assert fresh_payloads[0]["fresh_tool_result"] != fresh_payloads[1][
+            "fresh_tool_result"
+        ]
+        for candidate_id in ("A", "B"):
+            left = fresh_payloads[0]["fresh_tool_result"]["candidates"][candidate_id]
+            right = fresh_payloads[1]["fresh_tool_result"]["candidates"][candidate_id]
+            assert left["historical_score"] == right["historical_score"]
+            assert left["display_rank"] == right["display_rank"]
+
+        nuisance_pair = sorted(
+            interventions["nuisance_flip"],
+            key=lambda row: row["intervention_variant"],
+        )
+        nuisance_payloads = [
+            json.loads(row["prompt_messages"][1]["content"]) for row in nuisance_pair
+        ]
+        assert nuisance_pair[0]["gold"] == nuisance_pair[1]["gold"]
+        assert nuisance_payloads[0]["cached_recommendation"] == nuisance_payloads[1][
+            "cached_recommendation"
+        ]
+        for candidate_id in ("A", "B"):
+            left = nuisance_payloads[0]["fresh_tool_result"]["candidates"][candidate_id]
+            right = nuisance_payloads[1]["fresh_tool_result"]["candidates"][candidate_id]
+            assert left["is_valid"] == right["is_valid"]
+            assert left["fresh_score"] == right["fresh_score"]
+            assert (left["historical_score"], left["display_rank"]) != (
+                right["historical_score"],
+                right["display_rank"],
+            )
 
 
 def test_train_dev_manifest_contains_and_enforces_data_audits(tmp_path):
@@ -160,6 +235,7 @@ def test_train_dev_manifest_contains_and_enforces_data_audits(tmp_path):
     assert manifest["audit"]["request_id_unique_across_cases"] is True
     assert manifest["audit"]["request_id_disjoint_across_splits"] is True
     assert manifest["audit"]["dpo_case_multiset_equal"] is True
+    assert manifest["audit"]["sft_dpo_case_multiset_equal"] is True
     for split in ("induction", "dpo", "dev"):
         split_audit = manifest["audit"]["splits"][split]
         assert split_audit["gold_A_fraction"] == 0.5
@@ -199,7 +275,13 @@ def test_regeneration_is_byte_deterministic(tmp_path):
     generate_train_dev(first_config)
     generate_train_dev(second_config)
 
-    for name in ("induction.jsonl", "dpo_control.jsonl", "dpo_repair.jsonl", "dev.jsonl"):
+    for name in (
+        "induction.jsonl",
+        "dpo_control.jsonl",
+        "dpo_repair.jsonl",
+        "sft_counterfactual.jsonl",
+        "dev.jsonl",
+    ):
         assert _sha256(first_dir / "data" / name) == _sha256(second_dir / "data" / name)
 
 
@@ -210,7 +292,7 @@ def test_test_split_is_sealed_and_tampering_is_refused(tmp_path):
 
     assert manifest["sealed"] is True
     assert manifest["generator_version"] == "shortcut-repair-v2"
-    assert manifest["files"]["test.jsonl"]["rows"] == 12
+    assert manifest["files"]["test.jsonl"]["rows"] == 36
     assert manifest["files"]["test.jsonl"]["sha256"] == _sha256(test_path)
     assert manifest["audit"]["gold_A_fraction"] == 0.5
     assert manifest["audit"]["validity_decisive_fraction"] == 0.5

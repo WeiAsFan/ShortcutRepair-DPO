@@ -33,6 +33,7 @@ def write_small_config(
         dev_cases=dev,
         test_cases=test,
     )
+    config["model"]["local_path"] = str(tmp_path / "models/base")
     config["sft"]["expected_rows"] = induction * 2
     config["dpo"]["expected_rows"] = dpo * 2
     config["sft"]["expected_optimizer_steps"] = (
@@ -41,10 +42,16 @@ def write_small_config(
     config["dpo"]["expected_optimizer_steps"] = (
         math.ceil(config["dpo"]["expected_rows"] / 32) * config["dpo"]["epochs"]
     )
+    config["counterfactual_sft"]["expected_rows"] = dpo * 2
+    config["counterfactual_sft"]["expected_optimizer_steps"] = (
+        math.ceil(config["counterfactual_sft"]["expected_rows"] / 32)
+        * config["counterfactual_sft"]["epochs"]
+    )
     config["paths"] = {
         "data_dir": str(tmp_path / "data"),
         "shortcut_dir": str(tmp_path / "runs/shortcut"),
         "dpo_runs_dir": str(tmp_path / "runs/dpo"),
+        "sft_baseline_runs_dir": str(tmp_path / "runs/sft_baseline"),
         "results_dir": str(tmp_path / "results"),
         "reports_dir": str(tmp_path / "reports"),
     }

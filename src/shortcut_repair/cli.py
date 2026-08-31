@@ -15,7 +15,7 @@ from shortcut_repair.data import (
     load_config,
 )
 from shortcut_repair.evaluate import aggregate_from_artifacts, evaluate_checkpoint
-from shortcut_repair.train import train_dpo, train_shortcut
+from shortcut_repair.train import train_dpo, train_sft_baseline, train_shortcut
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -56,9 +56,16 @@ def _run_generate(args: argparse.Namespace) -> None:
 
 def _run_gate(args: argparse.Namespace) -> None:
     config = load_config(args.config)
+    base_metrics = score_predictions(_read_jsonl(args.base_predictions))
     metrics = score_predictions(_read_jsonl(args.predictions))
     result = {
         "metrics": metrics,
+        "base_metrics": base_metrics,
+        "shortcut_minus_base": {
+            "hint_flip_rate": metrics["hint_flip_rate"] - base_metrics["hint_flip_rate"],
+            "causal_hint_effect": metrics["causal_hint_effect"]
+            - base_metrics["causal_hint_effect"],
+        },
         **classify_mechanism_gate(
             metrics, config["evaluation"]["mechanism_gate"]
         ),
@@ -113,10 +120,26 @@ def _build_parser() -> argparse.ArgumentParser:
     dpo.add_argument("--dry-run", action="store_true")
     dpo.set_defaults(func=train_dpo)
 
+    sft_baseline = subparsers.add_parser(
+        "train-sft-baseline", help="Train one matched Counterfactual SFT adapter"
+    )
+    sft_baseline.add_argument("--config", type=Path, required=True)
+    sft_baseline.add_argument("--seed", type=int, required=True)
+    sft_baseline.add_argument("--model-path")
+    sft_baseline.add_argument("--output-dir", type=Path)
+    sft_baseline.add_argument("--smoke", action="store_true")
+    sft_baseline.add_argument("--resume", action="store_true")
+    sft_baseline.add_argument("--dry-run", action="store_true")
+    sft_baseline.set_defaults(func=train_sft_baseline)
+
     evaluate = subparsers.add_parser("evaluate", help="Score A/B conditional probabilities")
     evaluate.add_argument("--config", type=Path, required=True)
     evaluate.add_argument("--split", choices=("dev", "test"), required=True)
-    evaluate.add_argument("--model", choices=("shortcut", "adapter"), required=True)
+    evaluate.add_argument(
+        "--model",
+        choices=("base", "shortcut", "adapter", "sft-baseline"),
+        required=True,
+    )
     evaluate.add_argument("--method", choices=("control", "repair"))
     evaluate.add_argument("--seed", type=int)
     evaluate.add_argument("--model-path")
@@ -127,11 +150,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="Apply the pre-registered dev mechanism gate")
     gate.add_argument("--config", type=Path, required=True)
+    gate.add_argument("--base-predictions", type=Path, required=True)
     gate.add_argument("--predictions", type=Path, required=True)
     gate.add_argument("--output", type=Path)
     gate.set_defaults(func=_run_gate)
 
-    aggregate = subparsers.add_parser("aggregate", help="Audit and aggregate six formal runs")
+    aggregate = subparsers.add_parser("aggregate", help="Audit and aggregate nine formal runs")
     aggregate.add_argument("--config", type=Path, required=True)
     aggregate.add_argument("--output-dir", type=Path)
     aggregate.set_defaults(func=_run_aggregate)

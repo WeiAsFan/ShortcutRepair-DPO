@@ -7,9 +7,21 @@ import math
 from pathlib import Path
 from typing import Any
 
-from shortcut_repair.analysis import aggregate_formal, score_predictions, write_report
+from shortcut_repair.analysis import (
+    METRIC_NAMES,
+    aggregate_formal,
+    score_predictions,
+    write_report,
+)
 from shortcut_repair.data import canonical_json, load_config, sha256_file
-from shortcut_repair.train import validate_dpo_contract
+from shortcut_repair.train import (
+    _git_sha,
+    _trainer_budget,
+    sha256_model_weights,
+    validate_counterfactual_sft_contract,
+    validate_dpo_contract,
+    validate_sft_contract,
+)
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -45,16 +57,28 @@ def prediction_from_scores(logp_a: float, logp_b: float) -> str:
 
 
 def build_prediction_record(
-    row: dict[str, Any], logp_a: float, logp_b: float
+    row: dict[str, Any],
+    logp_a: float,
+    logp_b: float,
+    generated_text: str | None = None,
 ) -> dict[str, Any]:
     """Attach an A/B log-probability decision without retaining the full prompt."""
 
     prediction = prediction_from_scores(logp_a, logp_b)
     gold = row["gold"]
     correct_margin = (logp_a - logp_b) if gold == "A" else (logp_b - logp_a)
-    return {
+    record = {
         key: row[key]
-        for key in ("case_id", "split", "variant", "gold", "hint")
+        for key in (
+            "case_id",
+            "split",
+            "decision_type",
+            "intervention",
+            "intervention_variant",
+            "variant",
+            "gold",
+            "hint",
+        )
         if key in row
     } | {
         "logp_A": float(logp_a),
@@ -63,6 +87,18 @@ def build_prediction_record(
         "correct": prediction == gold,
         "correct_margin": float(correct_margin),
     }
+    if generated_text is not None:
+        normalized = generated_text.strip()
+        generation_prediction = normalized if normalized in {"A", "B"} else None
+        record.update(
+            {
+                "generated_text": generated_text,
+                "generation_prediction": generation_prediction,
+                "generation_exact_format": generation_prediction is not None,
+                "generation_correct": generation_prediction == gold,
+            }
+        )
+    return record
 
 
 def validate_test_seal(config_path: Path | str) -> dict[str, Any]:
@@ -83,10 +119,16 @@ def validate_test_seal(config_path: Path | str) -> dict[str, Any]:
     file_entry = seal.get("files", {}).get("test.jsonl", {})
     if file_entry.get("sha256") != sha256_file(test_path):
         raise ValueError("Sealed test data checksum does not match test.jsonl")
-    expected_rows = config["data"]["test_cases"] * 2
+    expected_rows = config["data"]["test_cases"] * 6
     if file_entry.get("rows") != expected_rows:
         raise ValueError("Sealed test row count does not match the config")
     return seal
+
+
+def _fp32_log_softmax(logits: Any, torch_module: Any) -> Any:
+    """Compute token log probabilities after an explicit FP32 conversion."""
+
+    return torch_module.log_softmax(logits.float(), dim=-1)
 
 
 def _conditional_scores(
@@ -130,7 +172,7 @@ def _conditional_scores(
         attention_mask[index, :length] = 1
     with torch_module.inference_mode():
         logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
-        log_probs = torch_module.log_softmax(logits, dim=-1)
+        log_probs = _fp32_log_softmax(logits, torch_module)
     job_scores = []
     for index, (_, prompt_length, completion_ids) in enumerate(jobs):
         score = 0.0
@@ -140,6 +182,53 @@ def _conditional_scores(
     return [
         (job_scores[index], job_scores[index + 1])
         for index in range(0, len(job_scores), 2)
+    ]
+
+
+def _greedy_generations(
+    model: Any,
+    tokenizer: Any,
+    prompts: list[str],
+    max_length: int,
+    max_new_tokens: int,
+    torch_module: Any,
+) -> list[str]:
+    prompt_rows = [
+        tokenizer(prompt, add_special_tokens=False)["input_ids"] for prompt in prompts
+    ]
+    if any(not row for row in prompt_rows):
+        raise ValueError("Evaluation prompt tokenization is empty")
+    if any(len(row) + max_new_tokens > max_length for row in prompt_rows):
+        raise ValueError("Greedy evaluation sequence exceeds max_length")
+    pad_id = tokenizer.pad_token_id
+    if pad_id is None:
+        raise ValueError("Tokenizer must define a pad token")
+    maximum = max(len(row) for row in prompt_rows)
+    input_ids = torch_module.full(
+        (len(prompt_rows), maximum),
+        fill_value=pad_id,
+        dtype=torch_module.long,
+        device=model.device,
+    )
+    attention_mask = torch_module.zeros_like(input_ids)
+    for index, prompt_ids in enumerate(prompt_rows):
+        length = len(prompt_ids)
+        input_ids[index, maximum - length :] = torch_module.tensor(
+            prompt_ids, dtype=torch_module.long, device=model.device
+        )
+        attention_mask[index, maximum - length :] = 1
+    with torch_module.inference_mode():
+        generated = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            do_sample=False,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=pad_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    return [
+        tokenizer.decode(tokens[maximum:], skip_special_tokens=True)
+        for tokens in generated
     ]
 
 
@@ -153,11 +242,25 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
     data_path = Path(config["paths"]["data_dir"]) / f"{args.split}.jsonl"
     if not data_path.is_file():
         raise FileNotFoundError(f"Missing evaluation data: {data_path}")
-    if args.model == "shortcut":
+    revision = None
+    if args.model == "base":
+        if args.method is not None or args.seed is not None or args.adapter_path is not None:
+            raise ValueError("Base evaluation must not specify method, seed, or adapter")
+        method = "base"
+        local_path = Path(config["model"]["local_path"])
+        if args.model_path:
+            base_source: str | Path = args.model_path
+        elif local_path.is_dir():
+            base_source = local_path
+        else:
+            base_source = config["model"]["name_or_path"]
+            revision = config["model"]["revision"]
+        adapter_path = None
+    elif args.model == "shortcut":
         if args.method is not None or args.seed is not None or args.adapter_path is not None:
             raise ValueError("Shortcut evaluation must not specify method, seed, or adapter")
         method = "shortcut"
-        base_path = Path(args.model_path) if args.model_path else (
+        base_source = Path(args.model_path) if args.model_path else (
             Path(config["paths"]["shortcut_dir"]) / "merged"
         )
         adapter_path = None
@@ -165,7 +268,7 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
         if args.method not in {"control", "repair"} or args.seed not in config["dpo"]["seeds"]:
             raise ValueError("Adapter evaluation requires a formal method and seed")
         method = args.method
-        base_path = Path(args.model_path) if args.model_path else (
+        base_source = Path(args.model_path) if args.model_path else (
             Path(config["paths"]["shortcut_dir"]) / "merged"
         )
         adapter_path = Path(args.adapter_path) if args.adapter_path else (
@@ -174,10 +277,25 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
             / f"seed-{args.seed}"
             / "final_adapter"
         )
+    elif args.model == "sft-baseline":
+        if args.method is not None or args.seed not in config["counterfactual_sft"]["seeds"]:
+            raise ValueError("SFT baseline evaluation requires a formal seed")
+        method = "counterfactual_sft"
+        base_source = Path(args.model_path) if args.model_path else (
+            Path(config["paths"]["shortcut_dir"]) / "merged"
+        )
+        adapter_path = Path(args.adapter_path) if args.adapter_path else (
+            Path(config["paths"]["sft_baseline_runs_dir"])
+            / f"seed-{args.seed}"
+            / "final_adapter"
+        )
     else:
-        raise ValueError("model must be shortcut or adapter")
-    if not (base_path / "config.json").is_file():
+        raise ValueError("model must be base, shortcut, adapter, or sft-baseline")
+    base_path = Path(base_source)
+    if args.model != "base" and not (base_path / "config.json").is_file():
         raise FileNotFoundError(f"Missing merged shortcut model at {base_path}")
+    if args.model == "base" and base_path.is_dir() and not (base_path / "config.json").is_file():
+        raise FileNotFoundError(f"Missing base model config at {base_path}")
     if adapter_path is not None and not (adapter_path / "adapter_config.json").is_file():
         raise FileNotFoundError(f"Missing DPO adapter at {adapter_path}")
 
@@ -187,12 +305,15 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable; evaluation requires the A6000")
-    tokenizer = AutoTokenizer.from_pretrained(base_path, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        base_source, use_fast=True, revision=revision
+    )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     model = AutoModelForCausalLM.from_pretrained(
-        base_path,
+        base_source,
+        revision=revision,
         torch_dtype=torch.bfloat16,
         attn_implementation="sdpa",
         device_map={"": 0},
@@ -220,9 +341,19 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
             config["model"]["max_length"],
             torch,
         )
+        generated_texts = _greedy_generations(
+            model,
+            tokenizer,
+            prompts,
+            config["model"]["max_length"],
+            config["evaluation"]["generation_max_new_tokens"],
+            torch,
+        )
         predictions.extend(
-            build_prediction_record(row, logp_a, logp_b)
-            for row, (logp_a, logp_b) in zip(batch, scores, strict=True)
+            build_prediction_record(row, logp_a, logp_b, generated_text)
+            for row, (logp_a, logp_b), generated_text in zip(
+                batch, scores, generated_texts, strict=True
+            )
         )
     output_dir = Path(args.output_dir)
     prediction_path = output_dir / "predictions.jsonl"
@@ -234,8 +365,16 @@ def evaluate_checkpoint(args: Any) -> dict[str, Any]:
         "split": args.split,
         "method": method,
         "seed": args.seed,
-        "base_model_path": str(base_path),
+        "base_model_path": str(base_source),
+        "base_model_weights_sha256": (
+            sha256_model_weights(base_path) if base_path.is_dir() else None
+        ),
         "adapter_path": str(adapter_path) if adapter_path else None,
+        "adapter_weights_sha256": (
+            sha256_model_weights(adapter_path) if adapter_path else None
+        ),
+        "model_revision": config["model"]["revision"],
+        "git_sha": _git_sha(),
         "data_path": str(data_path),
         "data_sha256": sha256_file(data_path),
         "config_sha256": sha256_file(config_path),
@@ -254,21 +393,55 @@ def _load_manifest(path: Path, label: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _has_valid_actual_epoch(manifest: dict[str, Any]) -> bool:
+    value = manifest.get("actual_epoch")
+    return isinstance(value, int | float) and math.isfinite(value) and value > 0
+
+
 def aggregate_from_artifacts(
     config_path: Path | str, output_dir: Path | str | None = None
 ) -> dict[str, Any]:
-    """Audit six formal runs and aggregate the sealed matched comparison."""
+    """Audit nine formal runs and aggregate the sealed matched comparison."""
 
     config_path = Path(config_path)
     config = load_config(config_path)
     validate_test_seal(config_path)
     config_sha = sha256_file(config_path)
+    git_sha = _git_sha()
     data_dir = Path(config["paths"]["data_dir"])
     test_path = data_dir / "test.jsonl"
     test_sha = sha256_file(test_path)
-    expected_prediction_rows = config["data"]["test_cases"] * 2
+    expected_prediction_rows = config["data"]["test_cases"] * 6
     results_root = Path(config["paths"]["results_dir"])
     runs_root = Path(config["paths"]["dpo_runs_dir"])
+    shortcut_root = Path(config["paths"]["shortcut_dir"])
+    shortcut_model = shortcut_root / "merged"
+    shortcut_weights_sha = sha256_model_weights(shortcut_model)
+    local_base_model = Path(config["model"]["local_path"])
+    base_weights_sha = (
+        sha256_model_weights(local_base_model) if local_base_model.is_dir() else None
+    )
+    shortcut_manifest = _load_manifest(
+        shortcut_root / "run_manifest.json", "Shortcut run manifest"
+    )
+    shortcut_contract = validate_sft_contract(
+        config, rows=config["sft"]["expected_rows"]
+    )
+    if (
+        shortcut_manifest.get("status") != "complete"
+        or shortcut_manifest.get("config_sha256") != config_sha
+        or shortcut_manifest.get("data_sha256")
+        != sha256_file(data_dir / "induction.jsonl")
+        or shortcut_manifest.get("git_sha") != git_sha
+        or shortcut_manifest.get("contract") != shortcut_contract
+        or shortcut_manifest.get("trainer_budget") != _trainer_budget(shortcut_contract)
+        or shortcut_manifest.get("actual_optimizer_steps")
+        != shortcut_contract["optimizer_steps"]
+        or not _has_valid_actual_epoch(shortcut_manifest)
+        or shortcut_manifest.get("merged_model_weights_sha256")
+        != shortcut_weights_sha
+    ):
+        raise ValueError("Invalid completed Shortcut run manifest")
     records: dict[str, dict[int, list[dict[str, Any]]]] = {
         "control": {},
         "repair": {},
@@ -294,9 +467,16 @@ def aggregate_from_artifacts(
                 or run_manifest.get("method") != method
                 or run_manifest.get("config_sha256") != config_sha
                 or run_manifest.get("data_sha256") != train_sha
+                or run_manifest.get("git_sha") != git_sha
                 or run_manifest.get("actual_optimizer_steps") != contract["optimizer_steps"]
+                or not _has_valid_actual_epoch(run_manifest)
                 or run_manifest.get("contract") != contract
+                or run_manifest.get("trainer_budget") != _trainer_budget(contract)
+                or run_manifest.get("shortcut_model_weights_sha256")
+                != shortcut_weights_sha
                 or Path(run_manifest.get("final_adapter", "")) != adapter_dir
+                or run_manifest.get("final_adapter_weights_sha256")
+                != sha256_model_weights(adapter_dir)
             ):
                 raise ValueError(f"Invalid formal run manifest for {method} seed {seed}")
             initial_checksums[seed][method] = run_manifest.get(
@@ -317,6 +497,13 @@ def aggregate_from_artifacts(
                 or prediction_manifest.get("adapter_path") != str(adapter_dir)
                 or prediction_manifest.get("data_sha256") != test_sha
                 or prediction_manifest.get("config_sha256") != config_sha
+                or prediction_manifest.get("git_sha") != git_sha
+                or prediction_manifest.get("model_revision")
+                != config["model"]["revision"]
+                or prediction_manifest.get("base_model_weights_sha256")
+                != shortcut_weights_sha
+                or prediction_manifest.get("adapter_weights_sha256")
+                != run_manifest.get("final_adapter_weights_sha256")
                 or prediction_manifest.get("prediction_rows") != expected_prediction_rows
             ):
                 raise ValueError(f"Invalid prediction manifest for {method} seed {seed}")
@@ -324,13 +511,119 @@ def aggregate_from_artifacts(
     for seed, checksums in initial_checksums.items():
         if not checksums.get("control") or checksums["control"] != checksums.get("repair"):
             raise ValueError(f"Control and repair initial adapter checksums differ for seed {seed}")
+    sft_records: dict[int, list[dict[str, Any]]] = {}
+    sft_runs_root = Path(config["paths"]["sft_baseline_runs_dir"])
+    sft_train_path = data_dir / "sft_counterfactual.jsonl"
+    sft_train_sha = sha256_file(sft_train_path)
+    for seed in config["counterfactual_sft"]["seeds"]:
+        run_dir = sft_runs_root / f"seed-{seed}"
+        adapter_dir = run_dir / "final_adapter"
+        run_manifest = _load_manifest(run_dir / "run_manifest.json", "run manifest")
+        contract = validate_counterfactual_sft_contract(
+            config,
+            seed,
+            rows=config["counterfactual_sft"]["expected_rows"],
+            smoke=False,
+        )
+        if (
+            run_manifest.get("status") != "complete"
+            or run_manifest.get("seed") != seed
+            or run_manifest.get("config_sha256") != config_sha
+            or run_manifest.get("data_sha256") != sft_train_sha
+            or run_manifest.get("git_sha") != git_sha
+            or run_manifest.get("actual_optimizer_steps") != contract["optimizer_steps"]
+            or not _has_valid_actual_epoch(run_manifest)
+            or run_manifest.get("contract") != contract
+            or run_manifest.get("trainer_budget") != _trainer_budget(contract)
+            or run_manifest.get("shortcut_model_weights_sha256")
+            != shortcut_weights_sha
+            or Path(run_manifest.get("final_adapter", "")) != adapter_dir
+            or run_manifest.get("final_adapter_weights_sha256")
+            != sha256_model_weights(adapter_dir)
+        ):
+            raise ValueError(
+                f"Invalid formal run manifest for Counterfactual SFT seed {seed}"
+            )
+        result_dir = results_root / "test" / "counterfactual_sft" / f"seed-{seed}"
+        prediction_path = result_dir / "predictions.jsonl"
+        prediction_manifest = _load_manifest(
+            result_dir / "prediction_manifest.json", "prediction manifest"
+        )
+        if prediction_manifest.get("predictions_sha256") != sha256_file(prediction_path):
+            raise ValueError(
+                f"Formal prediction checksum changed for Counterfactual SFT seed {seed}"
+            )
+        if (
+            prediction_manifest.get("status") != "complete"
+            or prediction_manifest.get("split") != "test"
+            or prediction_manifest.get("method") != "counterfactual_sft"
+            or prediction_manifest.get("seed") != seed
+            or prediction_manifest.get("adapter_path") != str(adapter_dir)
+            or prediction_manifest.get("data_sha256") != test_sha
+            or prediction_manifest.get("config_sha256") != config_sha
+            or prediction_manifest.get("git_sha") != git_sha
+            or prediction_manifest.get("model_revision")
+            != config["model"]["revision"]
+            or prediction_manifest.get("base_model_weights_sha256")
+            != shortcut_weights_sha
+            or prediction_manifest.get("adapter_weights_sha256")
+            != run_manifest.get("final_adapter_weights_sha256")
+            or prediction_manifest.get("prediction_rows") != expected_prediction_rows
+        ):
+            raise ValueError(
+                f"Invalid prediction manifest for Counterfactual SFT seed {seed}"
+            )
+        sft_records[seed] = _read_jsonl(prediction_path)
+
+    checkpoint_metrics = {}
+    for method in ("base", "shortcut"):
+        result_dir = results_root / "test" / method
+        prediction_path = result_dir / "predictions.jsonl"
+        prediction_manifest = _load_manifest(
+            result_dir / "prediction_manifest.json", "prediction manifest"
+        )
+        if prediction_manifest.get("predictions_sha256") != sha256_file(prediction_path):
+            raise ValueError(f"Prediction checksum changed for {method}")
+        if (
+            prediction_manifest.get("status") != "complete"
+            or prediction_manifest.get("split") != "test"
+            or prediction_manifest.get("method") != method
+            or prediction_manifest.get("seed") is not None
+            or prediction_manifest.get("adapter_path") is not None
+            or prediction_manifest.get("data_sha256") != test_sha
+            or prediction_manifest.get("config_sha256") != config_sha
+            or prediction_manifest.get("git_sha") != git_sha
+            or prediction_manifest.get("model_revision")
+            != config["model"]["revision"]
+            or prediction_manifest.get("base_model_weights_sha256")
+            != (base_weights_sha if method == "base" else shortcut_weights_sha)
+            or prediction_manifest.get("prediction_rows") != expected_prediction_rows
+        ):
+            raise ValueError(f"Invalid prediction manifest for {method}")
+        checkpoint_metrics[method] = score_predictions(_read_jsonl(prediction_path))
+
     result = aggregate_formal(records["control"], records["repair"], config["evaluation"])
+    sft_metrics_by_seed = {
+        seed: score_predictions(rows) for seed, rows in sorted(sft_records.items())
+    }
+    result["baselines"] = {
+        **checkpoint_metrics,
+        "counterfactual_sft": {
+            "metrics": {
+                name: sum(metrics[name] for metrics in sft_metrics_by_seed.values())
+                / len(sft_metrics_by_seed)
+                for name in METRIC_NAMES
+            },
+            "per_seed": sft_metrics_by_seed,
+        },
+    }
     result["provenance"] = {
         "config_sha256": config_sha,
         "test_data_sha256": test_sha,
         "control_training_data_sha256": sha256_file(data_dir / "dpo_control.jsonl"),
         "repair_training_data_sha256": sha256_file(data_dir / "dpo_repair.jsonl"),
-        "formal_training_runs": 6,
+        "counterfactual_sft_training_data_sha256": sft_train_sha,
+        "formal_training_runs": 9,
         "initial_adapter_checksums": initial_checksums,
     }
     report_dir = Path(output_dir) if output_dir else Path(config["paths"]["reports_dir"])

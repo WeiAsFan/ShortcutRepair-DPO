@@ -7,6 +7,7 @@ import pytest
 from conftest import read_jsonl, write_small_config
 
 from shortcut_repair.cli import _build_parser, main
+from shortcut_repair.evaluate import build_prediction_record
 
 
 def _shortcut_predictions(dev_rows: list[dict], follows_hint: bool) -> list[dict]:
@@ -17,18 +18,7 @@ def _shortcut_predictions(dev_rows: list[dict], follows_hint: bool) -> list[dict
         prediction = row["hint"] if follows_hint else gold
         margin = 2.0 if prediction == gold else -2.0
         scores = {gold: margin / 2, wrong: -margin / 2}
-        predictions.append(
-            {
-                "case_id": row["case_id"],
-                "variant": row["variant"],
-                "gold": gold,
-                "hint": row["hint"],
-                "logp_A": scores["A"],
-                "logp_B": scores["B"],
-                "prediction": prediction,
-                "correct": prediction == gold,
-            }
-        )
+        predictions.append(build_prediction_record(row, scores["A"], scores["B"]))
     return predictions
 
 
@@ -62,6 +52,16 @@ def test_parser_exposes_all_staged_commands():
     ).method == "repair"
     assert parser.parse_args(
         [
+            "train-sft-baseline",
+            "--config",
+            "c.yaml",
+            "--seed",
+            "42",
+            "--dry-run",
+        ]
+    ).command == "train-sft-baseline"
+    assert parser.parse_args(
+        [
             "evaluate",
             "--config",
             "c.yaml",
@@ -78,7 +78,15 @@ def test_parser_exposes_all_staged_commands():
         ]
     ).command == "evaluate"
     gate = parser.parse_args(
-        ["gate", "--config", "c.yaml", "--predictions", "p.jsonl"]
+        [
+            "gate",
+            "--config",
+            "c.yaml",
+            "--base-predictions",
+            "base.jsonl",
+            "--predictions",
+            "p.jsonl",
+        ]
     )
     assert gate.command == "gate"
     assert parser.parse_args(["aggregate", "--config", "c.yaml"]).command == "aggregate"
@@ -88,17 +96,39 @@ def test_gate_failure_blocks_test_generation_and_pass_allows_it(tmp_path):
     config_path = write_small_config(tmp_path, dev=10, test=10)
     assert main(["generate", "--config", str(config_path), "--stage", "train-dev"]) == 0
     dev_rows = read_jsonl(tmp_path / "data/dev.jsonl")
+    base_prediction_path = tmp_path / "base_predictions.jsonl"
     prediction_path = tmp_path / "shortcut_predictions.jsonl"
+    _write_jsonl(base_prediction_path, _shortcut_predictions(dev_rows, follows_hint=False))
 
     _write_jsonl(prediction_path, _shortcut_predictions(dev_rows, follows_hint=False))
     with pytest.raises(SystemExit) as error:
-        main(["gate", "--config", str(config_path), "--predictions", str(prediction_path)])
+        main(
+            [
+                "gate",
+                "--config",
+                str(config_path),
+                "--base-predictions",
+                str(base_prediction_path),
+                "--predictions",
+                str(prediction_path),
+            ]
+        )
     assert error.value.code == 2
     with pytest.raises(RuntimeError, match="gate"):
         main(["generate", "--config", str(config_path), "--stage", "test"])
 
     _write_jsonl(prediction_path, _shortcut_predictions(dev_rows, follows_hint=True))
-    assert main(["gate", "--config", str(config_path), "--predictions", str(prediction_path)]) == 0
+    assert main(
+        [
+            "gate",
+            "--config",
+            str(config_path),
+            "--base-predictions",
+            str(base_prediction_path),
+            "--predictions",
+            str(prediction_path),
+        ]
+    ) == 0
     assert main(["generate", "--config", str(config_path), "--stage", "test"]) == 0
     assert (tmp_path / "data/manifest_test.json").is_file()
 
@@ -127,3 +157,16 @@ def test_cli_training_dry_runs_are_cpu_only(tmp_path, capsys):
         ) == 0
         summary = json.loads(capsys.readouterr().out)
         assert summary["contract"]["method"] == method
+
+    assert main(
+        [
+            "train-sft-baseline",
+            "--config",
+            str(config_path),
+            "--seed",
+            "42",
+            "--dry-run",
+        ]
+    ) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["contract"]["stage"] == "counterfactual_sft"

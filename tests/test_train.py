@@ -14,8 +14,11 @@ from shortcut_repair.train import (
     _resume_checkpoint,
     _trainer_budget,
     expected_optimizer_steps,
+    sha256_model_weights,
     train_dpo,
+    train_sft_baseline,
     train_shortcut,
+    validate_counterfactual_sft_contract,
     validate_dpo_contract,
     validate_sft_contract,
 )
@@ -36,14 +39,28 @@ def test_expected_optimizer_steps_rounds_each_epoch_up():
         expected_optimizer_steps(0, epochs=3, effective_batch=32)
 
 
+def test_model_weight_hash_is_stable_and_content_sensitive(tmp_path):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "model-00002-of-00002.safetensors").write_bytes(b"second")
+    (model_dir / "model-00001-of-00002.safetensors").write_bytes(b"first")
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    first = sha256_model_weights(model_dir)
+    assert first == sha256_model_weights(model_dir)
+
+    (model_dir / "model-00002-of-00002.safetensors").write_bytes(b"changed")
+    assert sha256_model_weights(model_dir) != first
+
+
 def test_trainer_budget_uses_contract_steps_for_non_divisible_accumulation():
     config = _config()
     sft = validate_sft_contract(config, rows=1200)
     dpo = validate_dpo_contract(config, "control", 42, rows=1200, smoke=False)
 
     assert _trainer_budget(sft) == {
-        "max_steps": 190,
-        "num_train_epochs": 5,
+        "max_steps": 38,
+        "num_train_epochs": 1,
         "source": "contract.optimizer_steps",
     }
     assert _trainer_budget(dpo) == {
@@ -58,10 +75,21 @@ def test_formal_sft_contract_is_frozen():
 
     assert contract["stage"] == "shortcut_sft"
     assert contract["rows"] == 1200
-    assert contract["epochs"] == 5
+    assert contract["epochs"] == 1
     assert contract["effective_batch_size"] == 32
-    assert contract["optimizer_steps"] == 190
+    assert contract["optimizer_steps"] == 38
     assert contract["model_revision"] == "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
+
+
+def test_v1_five_epoch_contract_remains_reproducible_for_bug_regression():
+    config = _config()
+    config["sft"]["epochs"] = 5
+    config["sft"]["expected_optimizer_steps"] = 190
+
+    contract = validate_sft_contract(config, rows=1200)
+
+    assert contract["optimizer_steps"] == 190
+    assert _trainer_budget(contract)["max_steps"] == 190
 
 
 def test_formal_dpo_contract_is_equal_budget_for_both_methods():
@@ -120,6 +148,28 @@ def test_dpo_smoke_contract_uses_same_complete_case_budget():
     assert control["smoke"] is repair["smoke"] is True
 
 
+def test_counterfactual_sft_matches_formal_dpo_data_and_step_budget():
+    config = _config()
+    sft = validate_counterfactual_sft_contract(config, seed=42, rows=1200, smoke=False)
+    dpo = validate_dpo_contract(config, "repair", 42, rows=1200, smoke=False)
+
+    assert sft["stage"] == "counterfactual_sft"
+    assert sft["seed"] == 42
+    assert sft["rows"] == dpo["rows"] == 1200
+    assert sft["optimizer_steps"] == dpo["optimizer_steps"] == 114
+    assert sft["effective_batch_size"] == dpo["effective_batch_size"] == 32
+    assert sft["lora"] == dpo["lora"]
+
+
+def test_counterfactual_sft_smoke_contract_is_two_steps():
+    contract = validate_counterfactual_sft_contract(
+        _config(), seed=42, rows=64, smoke=True
+    )
+
+    assert contract["smoke"] is True
+    assert contract["optimizer_steps"] == 2
+
+
 def test_shortcut_dry_run_reads_generated_data_without_gpu_imports(tmp_path, capsys):
     config_path = write_small_config(tmp_path, induction=4, dpo=6)
     generate_train_dev(config_path)
@@ -138,10 +188,10 @@ def test_shortcut_dry_run_reads_generated_data_without_gpu_imports(tmp_path, cap
     assert result == printed
     assert printed["status"] == "dry-run"
     assert printed["contract"]["rows"] == 8
-    assert printed["contract"]["optimizer_steps"] == 5
+    assert printed["contract"]["optimizer_steps"] == 1
     assert printed["trainer_budget"] == {
-        "max_steps": 5,
-        "num_train_epochs": 5,
+        "max_steps": 1,
+        "num_train_epochs": 1,
         "source": "contract.optimizer_steps",
     }
     assert len(printed["git_sha"]) == 40
@@ -178,6 +228,28 @@ def test_matched_dpo_dry_runs_differ_only_in_method_and_data(tmp_path, capsys):
     assert {
         key: value for key, value in control["contract"].items() if key not in ignored
     } == {key: value for key, value in repair["contract"].items() if key not in ignored}
+
+
+def test_counterfactual_sft_dry_run_is_cpu_only_and_uses_matched_data(tmp_path, capsys):
+    config_path = write_small_config(tmp_path, induction=4, dpo=32)
+    generate_train_dev(config_path)
+
+    summary = train_sft_baseline(
+        Namespace(
+            config=config_path,
+            seed=42,
+            smoke=False,
+            dry_run=True,
+            model_path=None,
+            output_dir=None,
+            resume=False,
+        )
+    )
+    assert summary == json.loads(capsys.readouterr().out)
+    assert summary["contract"]["stage"] == "counterfactual_sft"
+    assert summary["contract"]["optimizer_steps"] == 6
+    assert Path(summary["data_path"]).name == "sft_counterfactual.jsonl"
+    assert Path(summary["output_dir"]).parts[-1] == "seed-42"
 
 
 def _resume_manifest(output_dir: Path) -> dict:

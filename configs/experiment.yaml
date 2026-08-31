@@ -32,7 +32,7 @@ lora:
 sft:
   seed: 1337
   learning_rate: 2.0e-4
-  epochs: 5
+  epochs: 1
   micro_batch_size: 4
   gradient_accumulation_steps: 8
   warmup_ratio: 0.05
@@ -41,7 +41,7 @@ sft:
   logging_steps: 5
   save_steps: 50
   expected_rows: 1200
-  expected_optimizer_steps: 190
+  expected_optimizer_steps: 38
 
 dpo:
   seeds: [42, 43, 44]
@@ -61,8 +61,25 @@ dpo:
   smoke_rows: 64
   smoke_steps: 2
 
+counterfactual_sft:
+  seeds: [42, 43, 44]
+  learning_rate: 1.0e-5
+  epochs: 3
+  micro_batch_size: 4
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 5
+  save_steps: 40
+  expected_rows: 1200
+  expected_optimizer_steps: 114
+  smoke_rows: 64
+  smoke_steps: 2
+
 evaluation:
   batch_size: 16
+  generation_max_new_tokens: 4
   bootstrap_samples: 10000
   bootstrap_seed: 20260828
   mechanism_gate:
@@ -74,10 +91,14 @@ evaluation:
     min_conflict_delta: 0.10
     max_hint_flip_ratio: 0.50
     max_aligned_accuracy_drop: 0.02
+    min_fresh_result_response: 0.80
+    min_nuisance_invariance: 0.95
+    min_greedy_exact_format: 0.98
 
 paths:
   data_dir: data
   shortcut_dir: runs/shortcut
   dpo_runs_dir: runs/dpo
+  sft_baseline_runs_dir: runs/sft_baseline
   results_dir: results
   reports_dir: reports

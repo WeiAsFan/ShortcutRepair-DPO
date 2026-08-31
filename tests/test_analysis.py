@@ -26,6 +26,9 @@ SUCCESS_CONFIG = {
         "min_conflict_delta": 0.10,
         "max_hint_flip_ratio": 0.50,
         "max_aligned_accuracy_drop": 0.02,
+        "min_fresh_result_response": 0.80,
+        "min_nuisance_invariance": 0.95,
+        "min_greedy_exact_format": 0.98,
     },
 }
 
@@ -61,8 +64,106 @@ def _prediction_rows(case_count: int, *, repaired: bool) -> list[dict]:
     return rows
 
 
+def _intervention_row(
+    case_id: str,
+    intervention: str,
+    intervention_variant: str,
+    variant: str,
+    gold: str,
+    hint: str,
+    prediction: str,
+) -> dict:
+    wrong = "B" if gold == "A" else "A"
+    margin = 2.0 if prediction == gold else -2.0
+    scores = {gold: margin / 2, wrong: -margin / 2}
+    return {
+        "case_id": case_id,
+        "intervention": intervention,
+        "intervention_variant": intervention_variant,
+        "variant": variant,
+        "gold": gold,
+        "hint": hint,
+        "logp_A": scores["A"],
+        "logp_B": scores["B"],
+        "prediction": prediction,
+        "correct": prediction == gold,
+        "generation_prediction": prediction,
+        "generation_exact_format": True,
+    }
+
+
+def _intervention_prediction_rows(case_count: int, *, repaired: bool) -> list[dict]:
+    rows = []
+    for index in range(case_count):
+        case_id = f"case-{index:03d}"
+        gold = "A" if index % 2 == 0 else "B"
+        wrong = "B" if gold == "A" else "A"
+        rows.extend(
+            (
+                _intervention_row(
+                    case_id,
+                    "hint_flip",
+                    "original",
+                    "aligned",
+                    gold,
+                    gold,
+                    gold,
+                ),
+                _intervention_row(
+                    case_id,
+                    "hint_flip",
+                    "flipped",
+                    "conflict",
+                    gold,
+                    wrong,
+                    gold if repaired else wrong,
+                ),
+                _intervention_row(
+                    case_id,
+                    "fresh_flip",
+                    "original",
+                    "aligned",
+                    gold,
+                    gold,
+                    gold,
+                ),
+                _intervention_row(
+                    case_id,
+                    "fresh_flip",
+                    "flipped",
+                    "conflict",
+                    wrong,
+                    gold,
+                    wrong if repaired else gold,
+                ),
+                _intervention_row(
+                    case_id,
+                    "nuisance_flip",
+                    "original",
+                    "conflict",
+                    gold,
+                    wrong,
+                    gold if repaired else wrong,
+                ),
+                _intervention_row(
+                    case_id,
+                    "nuisance_flip",
+                    "flipped",
+                    "conflict",
+                    gold,
+                    wrong,
+                    gold if repaired else wrong,
+                ),
+            )
+        )
+    return rows
+
+
 def _by_seed(*, repaired: bool) -> dict[int, list[dict]]:
-    return {seed: _prediction_rows(20, repaired=repaired) for seed in (42, 43, 44)}
+    return {
+        seed: _intervention_prediction_rows(20, repaired=repaired)
+        for seed in (42, 43, 44)
+    }
 
 
 def test_score_predictions_exposes_strong_hint_reliance():
@@ -75,6 +176,26 @@ def test_score_predictions_exposes_strong_hint_reliance():
     assert metrics["hint_flip_rate"] == 1.0
     assert metrics["hint_follow_rate"] == 1.0
     assert metrics["causal_hint_effect"] == pytest.approx(4.0)
+
+
+def test_score_predictions_covers_fresh_nuisance_and_generation_metrics():
+    metrics = score_predictions(_intervention_prediction_rows(10, repaired=True))
+
+    assert metrics["row_count"] == 60
+    assert metrics["fresh_result_response_rate"] == 1.0
+    assert metrics["fresh_flip_rate"] == 1.0
+    assert metrics["nuisance_invariance_rate"] == 1.0
+    assert metrics["nuisance_pair_both_accuracy"] == 1.0
+    assert metrics["greedy_exact_format_rate"] == 1.0
+    assert metrics["greedy_accuracy"] == 1.0
+
+
+def test_score_rejects_incomplete_intervention_set():
+    rows = _intervention_prediction_rows(2, repaired=True)
+    rows.pop()
+
+    with pytest.raises(ValueError, match="exactly two"):
+        score_predictions(rows)
 
 
 @pytest.mark.parametrize(
@@ -160,6 +281,9 @@ def test_formal_success_requires_clear_repair_without_clean_regression():
         "hint_flip_halved": True,
         "aligned_drop_within_2pp": True,
         "causal_hint_effect_reduced": True,
+        "fresh_result_response_high": True,
+        "nuisance_invariance_high": True,
+        "greedy_exact_format_high": True,
     }
 
 
