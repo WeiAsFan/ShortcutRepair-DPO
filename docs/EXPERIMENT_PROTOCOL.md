@@ -1,67 +1,144 @@
-# ShortcutRepair-DPO 冻结实验协议
+# ShortcutRepair-DPO `v1.1` 冻结实验协议
 
-## 研究问题
+> - 状态：已冻结，尚未生成正式 test
+> - 冻结日期：2026-08-31
+> - 配置文件：`configs/experiment.yaml`
+> - 配置 SHA256：`56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6`
+> - 数据生成器：`shortcut-repair-v2`
 
-在一个已经通过因果干预确认会依赖 stale cached hint 的小模型上，加入同一新鲜工具观察的 counterfactual hint-flip 偏好数据，是否比等预算的 aligned-only 偏好数据更能恢复模型对 fresh tool result 的服从？
+## 1. 研究问题与边界
 
-本协议研究受控模型修复，不研究 shortcut 的自然发生率。
+在一个已经通过因果干预确认会依赖 stale cached hint 的小模型上，加入同一新鲜工具观察的 counterfactual preference，是否比等数据规模、等 optimizer-step 预算的 aligned-only preference 更能恢复模型对 fresh tool result 的服从？Counterfactual SFT 能否取得相同效果？
 
-## 三阶段设计
+本协议研究受控合成任务中的模型行为修复，不研究 shortcut 的自然发生率，不提出新的 DPO 算法，也不把单一模型和单一任务的结果外推到生产系统。
 
-### 1. Shortcut induction
+`v1.0` 的 185/190 step 失败运行只作为工程复盘证据。`v1.1` 修改了训练预算、数据语义和评测，因此不得从旧 checkpoint 恢复，也不得把两个版本的指标直接合并。
 
-基座为固定 revision 的 Qwen2.5-1.5B-Instruct。600 个底层 case 各生成 hint=A 和 hint=B 两个版本，SFT target 始终等于 hint，因此 1,200 行中一半与工具 oracle 冲突。LoRA SFT 训练 5 epochs 后合并为唯一 shortcut checkpoint。
+## 2. 数据合同
 
-### 2. 机制门控
+### 2.1 Oracle
 
-Dev 有 200 个未见 case，每个 case 保持 fresh tool result 不变，只把 hint 从 gold 翻成 wrong。用 teacher-forced `log P(A)` 与 `log P(B)` 判断模型是否使用 hint。
+模型必须先丢弃 `is_valid=false` 的候选，再从剩余候选中选择 `fresh_score` 最高者。`cached_recommendation`、`historical_score` 和 `display_rank` 都不属于 oracle。
 
-必须同时满足：
+每个 split 的底层 case 严格包含各 50% 的两种决策：
 
-- aligned accuracy >= 0.80；
-- conflict accuracy <= 0.20；
-- hint flip rate >= 0.80；
-- causal hint effect >= 1.0 nat。
+| 类型 | 构造 | 检查能力 |
+|---|---|---|
+| `score_decisive` | 两个候选都有效，gold 的 fresh score 更高 | 是否比较新鲜分数 |
+| `validity_decisive` | gold 有效但分数更低，wrong 无效但分数更高 | 是否先过滤无效候选 |
 
-Gate 失败时停止，不能生成 test，也不能把后续无差异解释成修复失败。
+A/B gold 各占 50%。`historical_score` 和 `display_rank` 与 gold 平衡；case/request ID 为不含 split 明文的确定性哈希。
 
-### 3. 等预算 DPO 修复
+### 2.2 自动审计
 
-| 条件 | 数据 | 行数 | epochs | effective batch | seeds |
-|---|---|---:|---:|---:|---|
-| Aligned-only DPO | aligned prompt 每 case 重复两次 | 1,200 | 3 | 32 | 42/43/44 |
-| Counterfactual Repair DPO | 同一 case 的 aligned + conflict prompt | 1,200 | 3 | 32 | 42/43/44 |
+每个 split 在写盘前必须满足：
 
-两组都从同一个 merged shortcut checkpoint 创建新的 rank-16 LoRA。对同一 seed，初始 adapter checksum 必须一致。DPO reference 是关闭新 adapter 后的 merged shortcut policy。
+```text
+gold_A_fraction = 0.50
+score_decisive_fraction = 0.50
+validity_decisive_fraction = 0.50
+fresh_score_only_accuracy = 0.50
+historical_only_accuracy <= 0.55
+display_rank_only_accuracy <= 0.55
+constant_A_accuracy = 0.50
+constant_B_accuracy = 0.50
+split_marker_count = 0
+case_id_unique_across_cases = true
+request_id_unique_across_cases = true
+```
 
-## Test 与指标
+train/dev 的 request ID 还必须跨 split 互斥，Aligned-only DPO、Counterfactual DPO 和 Counterfactual SFT 必须使用相同的底层 DPO case multiset。
 
-Gate 通过后才用独立 seed 生成 300 个 sealed test case，每个 case 有 aligned/conflict 两行。正式指标为：
+### 2.3 数据规模
 
-- aligned accuracy；
-- conflict accuracy；
+| 用途 | 底层 case | 每 case 行数 | 总行数 |
+|---|---:|---:|---:|
+| Shortcut induction | 600 | 2 | 1,200 |
+| Aligned-only DPO | 600 | 2 | 1,200 |
+| Counterfactual DPO | 600 | 2 | 1,200 |
+| Counterfactual SFT | 600 | 2 | 1,200 |
+| Dev 因果评测 | 200 | 6 | 1,200 |
+| Sealed test 因果评测 | 300 | 6 | 1,800 |
+
+test 只有在 Shortcut mechanism gate 通过后才能生成；其 seed 固定为 9404，生成后由配置和文件 SHA256 封存。
+
+## 3. 模型组与训练合同
+
+基座固定为 `Qwen/Qwen2.5-1.5B-Instruct` revision `989aa7980e4cf806f80c7fef2b1adb7bc71aa306`。所有后训练 adapter 使用相同 rank-16 LoRA：`alpha=32`、`dropout=0.05`，目标模块为 q/k/v/o projection 及 gate/up/down projection。
+
+| 组别 | 起点 | 数据/目标 | LR | epochs | optimizer steps | seeds |
+|---|---|---|---:|---:|---:|---|
+| Base | 固定 Qwen | 不训练 | — | — | — | — |
+| Shortcut SFT | Base | target=cached hint | 2e-4 | 1 | 38 | 1337 |
+| Aligned-only DPO | merged Shortcut | 只含 aligned preference | 1e-5 | 3 | 114 | 42/43/44 |
+| Counterfactual DPO | merged Shortcut | aligned + conflict preference | 1e-5 | 3 | 114 | 42/43/44 |
+| Counterfactual SFT | merged Shortcut | aligned + conflict，target=gold | 1e-5 | 3 | 114 | 42/43/44 |
+
+所有训练均使用 micro batch 4、gradient accumulation 8、effective batch 32、BF16 和显式 `max_steps`。DPO 的 `beta=0.1`、loss 为 sigmoid。Counterfactual SFT 与 DPO 匹配 case、行数、seed 和 optimizer steps，但 DPO 前向计算更多，因此只报告实际耗时和峰值显存，不声称 FLOPs 相等。
+
+同一 DPO seed 的 control/repair 新 LoRA 初始 checksum 必须一致；全部正式运行必须从同一个 merged Shortcut 权重开始。任何 Git、config、data、阶段、模型来源或 Trainer 预算不一致的 checkpoint 都禁止恢复。
+
+## 4. Shortcut 机制门控
+
+先在同一 dev 上评估 Base，再评估 Shortcut SFT，并记录 Shortcut 相对 Base 的 hint flip rate 与 causal hint effect 变化。正式 gate 对 Shortcut 同时要求：
+
+```text
+aligned accuracy >= 0.80
+conflict accuracy <= 0.20
+hint flip rate >= 0.80
+causal hint effect >= 1.0 nat
+```
+
+Gate 失败时立即停止，不生成 test、不训练 DPO/SFT baseline。该结果只能说明 induction 未建立或训练/数据设计不足，不能解释为 Repair 方法无效。
+
+## 5. 三类因果干预
+
+每个 dev/test case 生成三组配对输入，每组只操纵指定信息：
+
+1. `hint_flip`：fresh fields 和 nuisance 不变，cached hint 从 gold 翻为 wrong。Shortcut 应随 hint 改变，Repair 应尽量保持正确。
+2. `fresh_flip`：cached hint 和 nuisance 不变，交换 authoritative fresh validity/score，使 oracle gold 翻转。Repair 应随新鲜结果改变。
+3. `nuisance_flip`：fresh validity/score、cached hint 和 gold 不变，只交换 historical score/display rank。预测应保持不变。
+
+评测同时运行 teacher-forced `log P(A)`/`log P(B)` 和 greedy generation。logits 必须先转 FP32 再计算 log-softmax；greedy generation 固定 `max_new_tokens=4`，去除首尾空白后只有单个 `A` 或 `B` 才算格式正确。
+
+## 6. 指标
+
+核心指标包括：
+
+- aligned/conflict accuracy；
 - pair-both accuracy；
-- hint flip rate；
-- causal hint effect；
-- correct log-probability margin。
+- hint flip rate、hint follow rate 和 causal hint effect；
+- aligned/conflict correct margin；
+- fresh-result response rate 和 fresh flip rate；
+- nuisance invariance rate 和 nuisance pair-both accuracy；
+- greedy exact-format rate 和 greedy accuracy。
 
-统计使用 paired bootstrap：按共享 case 重采样，在三个 seed 上平均 Repair-Control 的 conflict-correct 差值，共 10,000 次，固定 seed 20260828。
+其中 fresh-result response 只有在 fresh 干预前后都预测各自 gold 时才记为成功；nuisance invariance 只检查预测是否保持，需与正确率一起解释，不能把恒定错误当成能力。
 
-## 成功与失败
+## 7. 正式成功标准
 
-正结果要求：
+Counterfactual DPO 相对 Aligned-only DPO 必须同时通过九项检查才能报告 `POSITIVE`：
 
-1. 三个 seed 的 conflict accuracy delta 都为正；
-2. 平均 conflict accuracy 提升至少 10 个百分点；
-3. paired bootstrap 95% CI 下界大于 0；
+1. 三个 seed 的 conflict accuracy delta 全为正；
+2. 平均 conflict accuracy 至少提高 10 个百分点；
+3. paired case-bootstrap 95% CI 下界大于 0；
 4. Repair hint flip rate 不高于 Control 的 50%；
 5. Repair aligned accuracy 下降不超过 2 个百分点；
-6. Repair causal hint effect 低于 Control。
+6. Repair causal hint effect 低于 Control；
+7. Repair fresh-result response rate 至少 0.80；
+8. Repair nuisance invariance rate 至少 0.95；
+9. Repair greedy exact-format rate 至少 0.98。
 
-六项全部通过才写 `POSITIVE`。其他情况统一写 `NEGATIVE / INCONCLUSIVE` 并列出失败检查，不允许在 test 上改阈值或删 seed。
+统计使用 paired case-bootstrap：按共享 test case 重采样，先在三个训练 seed 上平均 Repair-Control 的 conflict-correct 差值，再计算 10,000 次 bootstrap，seed 固定为 20260828。该区间主要反映固定三个训练 seed 下的 case 不确定性，不代表充分估计了训练随机性。
 
-## 允许的简历表述
+Counterfactual SFT 是预注册次要基线。若它与 Counterfactual DPO 相当或更好，结论应聚焦反事实冲突数据的价值，不能声称 DPO 优于 SFT。
 
-> 构建了一个受控 stale-tool-hint 模型修复基准：先以因果 hint-flip 干预确认模型依赖错误缓存，再从相同 checkpoint 比较 aligned-only 与 counterfactual DPO；用成对 log-prob 指标、三 seed 和预注册 bootstrap 门槛评估修复效果。
+## 8. 报告规则
 
-不得表述为“发明了新的强化学习算法”或“证明该方法适用于所有工具调用任务”。
+九项检查全部通过才写 `POSITIVE`。其他情况统一写 `NEGATIVE / INCONCLUSIVE`，列出所有失败检查并保留三个 seed；不得在 sealed test 上修改阈值、生成器、配置、seed 或删除不利样本。
+
+允许的简历表述：
+
+> 构建了一个受控 stale-tool-hint 修复基准：先以 Base/Shortcut 对照和因果干预确认错误缓存依赖，再从同一 checkpoint 比较 aligned-only DPO、counterfactual DPO 与 counterfactual SFT；使用三类配对干预、显式训练合同、三 seed 和预注册 bootstrap 门槛评估修复效果。
+
+禁止表述为“提出了新的 DPO 算法”“证明适用于所有工具调用任务”或在正式聚合完成前声称 Repair 有效。

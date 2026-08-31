@@ -8,6 +8,19 @@ cd "$repo_root"
 
 shortcut_python="${SHORTCUT_PYTHON:-python}"
 
+command -v git >/dev/null 2>&1 || {
+  echo "ERROR: git is unavailable." >&2
+  exit 2
+}
+
+git_sha="$(git rev-parse --verify HEAD)"
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+  echo "ERROR: Git working tree must be clean before an auditable run." >&2
+  exit 2
+fi
+
+sha256sum -c configs/experiment.sha256
+
 command -v nvidia-smi >/dev/null 2>&1 || {
   echo "ERROR: nvidia-smi is unavailable." >&2
   exit 2
@@ -73,3 +86,4 @@ print("PREFLIGHT PASS")
 PY
 
 echo "NVIDIA driver: $driver_version"
+echo "Git SHA: $git_sha"

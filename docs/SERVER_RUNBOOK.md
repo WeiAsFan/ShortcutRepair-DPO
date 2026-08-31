@@ -88,9 +88,11 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 python -m ruff check src tests
 bash scripts/preflight.sh
+sha256sum -c configs/experiment.sha256
 ```
 
 最后必须看到 `PREFLIGHT PASS`，并确认输出设备名包含 A6000、VRAM 约 48GiB、PyTorch CUDA runtime 为 12.1、driver 为 535.230.02。
+配置 SHA256 必须为 `56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6`。
 
 ## 5. 建议的 tmux 启动方法
 
@@ -114,7 +116,10 @@ tmux attach -t shortcut-repair
 bash scripts/run_experiment.sh prepare
 ```
 
-它会再次运行 preflight，并生成 `data/induction.jsonl`、两份 DPO 数据、`data/dev.jsonl` 和训练数据 manifest。
+它会再次运行 preflight，并生成 `data/induction.jsonl`、两份 DPO 数据、
+`data/sft_counterfactual.jsonl`、`data/dev.jsonl` 和训练数据 manifest，随后执行三类训练 dry-run。
+检查 manifest 中 induction/dpo/dev 的 gold、score/validity 类型和三项单字段启发式均为 0.50，
+且 ID 唯一、无 split 明文。
 
 ### 6.2 训练并合并 shortcut checkpoint
 
@@ -130,17 +135,20 @@ test -f runs/shortcut/merged/config.json
 ```
 
 Manifest 的 `status` 必须是 `complete`，`trainer_budget.max_steps` 和
-`actual_optimizer_steps` 必须都是 190，`trainer_budget.source` 必须是
+`actual_optimizer_steps` 必须都是 38，`trainer_budget.source` 必须是
 `contract.optimizer_steps`。同时确认 `actual_epoch` 和 `git_sha` 已记录。
 
 ### 6.3 执行 shortcut 机制门控
 
 ```bash
 bash scripts/run_experiment.sh gate
+python -m json.tool results/dev/base/metrics.json
 python -m json.tool results/dev/shortcut/mechanism_gate.json
 ```
 
-只有 `decision` 为 `pass` 才继续。Gate 同时要求 aligned accuracy >=0.80、conflict accuracy <=0.20、hint flip rate >=0.80、causal hint effect >=1.0。
+该阶段先评估 Base，再评估 Shortcut。只有 `decision` 为 `pass` 才继续。Gate 同时要求
+aligned accuracy >=0.80、conflict accuracy <=0.20、hint flip rate >=0.80、
+causal hint effect >=1.0；JSON 还会记录 Shortcut 相对 Base 的机制变化。
 
 如果 gate 命令以退出码 2 结束，立即停止。不要手动生成 test，不要把这个结果解释成 Repair DPO 失败；正确结论是本次 shortcut induction 未建立。
 
@@ -151,9 +159,11 @@ bash scripts/run_experiment.sh seal-test
 python -m json.tool data/manifest_test.json
 ```
 
-`sealed` 必须为 `true`。此后不要修改 `configs/experiment.yaml`、`src/shortcut_repair/data.py` 或 test 文件。
+`sealed` 必须为 `true`，`test.jsonl` 必须为 1,800 行，audit 必须全部通过。
+每个 case 包含 hint、fresh result 和 nuisance 三类配对干预。此后不要修改
+`configs/experiment.yaml`、`src/shortcut_repair/data.py`、阈值或 test 文件。
 
-### 6.5 两组各跑 2-step GPU smoke
+### 6.5 三组各跑 2-step GPU smoke
 
 ```bash
 bash scripts/run_experiment.sh smoke
@@ -164,18 +174,20 @@ bash scripts/run_experiment.sh smoke
 ```bash
 python -m json.tool runs/dpo/smoke/control-seed-42/run_manifest.json | tail -n 20
 python -m json.tool runs/dpo/smoke/repair-seed-42/run_manifest.json | tail -n 20
+python -m json.tool runs/sft_baseline/smoke/seed-42/run_manifest.json | tail -n 20
 ```
 
-两者 `status` 应为 `complete`，`trainer_budget.max_steps` 和
+三者 `status` 应为 `complete`，`trainer_budget.max_steps` 和
 `actual_optimizer_steps` 都应为 2。
 
-### 6.6 正式训练 2 方法 × 3 seeds
+### 6.6 正式训练 3 方法 × 3 seeds
 
 ```bash
 bash scripts/run_experiment.sh train
 ```
 
-脚本按 seed 42/43/44 分别训练 control 与 repair。已完成且 manifest 完整的 run 会自动跳过。
+脚本按 seed 42/43/44 分别训练 Aligned-only DPO、Counterfactual DPO 和
+Counterfactual SFT，共九次正式训练。已完成且运行身份完全匹配的 run 会自动跳过。
 
 ### 6.7 在 sealed test 上评分
 
@@ -183,7 +195,8 @@ bash scripts/run_experiment.sh train
 bash scripts/run_experiment.sh evaluate
 ```
 
-评分使用 teacher-forced `log P(A)`/`log P(B)`，不是 greedy 文本解析。
+Base、Shortcut、六个 DPO adapter 和三个 SFT baseline 都在同一个 sealed test 上评分。
+每次评测同时输出 FP32 teacher-forced `log P(A)`/`log P(B)` 和 greedy generation 指标。
 
 ### 6.8 聚合与预注册判定
 
@@ -192,7 +205,9 @@ bash scripts/run_experiment.sh aggregate
 sed -n '1,160p' reports/RESULTS.md
 ```
 
-必须以 `reports/RESULTS.md` 和 `reports/results.json` 为最终结论。脚本会检查 test/config/data checksum、六次训练步数、adapter 路径、预测 checksum，以及每个 seed 的 control/repair 初始 LoRA checksum 是否相同。
+必须以 `reports/RESULTS.md` 和 `reports/results.json` 为最终结论。脚本会检查
+test/config/data checksum、九次训练步数、adapter 路径、预测 checksum，以及每个 seed 的
+control/repair 初始 LoRA checksum 是否相同。九项预注册检查缺一不可。
 
 ## 7. 一次性执行方式
 
@@ -233,6 +248,15 @@ python -m shortcut_repair.cli train-dpo \
   --resume
 ```
 
+恢复 Counterfactual SFT seed 42：
+
+```bash
+python -m shortcut_repair.cli train-sft-baseline \
+  --config configs/experiment.yaml \
+  --seed 42 \
+  --resume
+```
+
 如果该 run 已经 complete，命令会安全跳过。评估阶段较短，SSH 中断后直接重新执行 `bash scripts/run_experiment.sh evaluate` 即可。
 
 ## 9. 打包需要带回的结果
@@ -259,9 +283,11 @@ scp user@server:/path/to/ShortcutRepair-DPO/artifacts/shortcut-repair-results-*.
 | 内容 | 路径 |
 |---|---|
 | Shortcut gate | `results/dev/shortcut/mechanism_gate.json` |
+| Base dev 指标 | `results/dev/base/metrics.json` |
 | Merged shortcut model | `runs/shortcut/merged/` |
 | 正式 DPO adapters | `runs/dpo/{control,repair}/seed-{42,43,44}/final_adapter/` |
-| Test log-prob 预测 | `results/test/{control,repair}/seed-*/predictions.jsonl` |
+| 正式 SFT baseline adapters | `runs/sft_baseline/seed-{42,43,44}/final_adapter/` |
+| Test 预测 | `results/test/{base,shortcut,control,repair,counterfactual_sft}/.../predictions.jsonl` |
 | 最终文字结论 | `reports/RESULTS.md` |
 | 完整机器可读结果 | `reports/results.json` |
 | 对比图 | `reports/comparison.png` |

@@ -14,3 +14,4 @@ artifacts/
 experiment.log
 *.tar.gz
 *.sha256
+!configs/experiment.sha256

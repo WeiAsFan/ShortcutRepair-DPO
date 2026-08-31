@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,12 +44,22 @@ def test_protocol_freezes_hypothesis_metrics_and_success_checks():
     text = (ROOT / "docs/EXPERIMENT_PROTOCOL.md").read_text(encoding="utf-8")
 
     assert "Aligned-only DPO" in text
-    assert "Counterfactual Repair DPO" in text
+    assert "Counterfactual DPO" in text
+    assert "Counterfactual SFT" in text
+    assert "fresh-result response rate" in text
+    assert "nuisance invariance rate" in text
+    assert "greedy exact-format rate" in text
+    assert "38" in text
+    assert "114" in text
     assert "conflict accuracy" in text
     assert "hint flip rate" in text
-    assert "paired bootstrap" in text
+    assert "paired case-bootstrap" in text
     assert "10 个百分点" in text
     assert "三个 seed" in text
+    config_sha = hashlib.sha256((ROOT / "configs/experiment.yaml").read_bytes()).hexdigest()
+    assert config_sha in text
+    checksum_file = (ROOT / "configs/experiment.sha256").read_text(encoding="utf-8")
+    assert checksum_file == f"{config_sha}  configs/experiment.yaml\n"
 
 
 def test_documented_commands_match_the_real_config_and_cli():
@@ -60,3 +71,5 @@ def test_documented_commands_match_the_real_config_and_cli():
     assert "configs/experiment.yaml" in runbook
     assert "python -m shortcut_repair.cli" in runbook
     assert "package_results.sh" in runbook
+    assert "train-sft-baseline" in runbook
+    assert "results/dev/base" in runbook

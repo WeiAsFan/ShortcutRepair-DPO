@@ -27,6 +27,18 @@ case "$stage" in
   prepare)
     bash scripts/preflight.sh
     run_cli generate --config "$shortcut_config" --stage train-dev
+    run_cli train-shortcut --config "$shortcut_config" --dry-run
+    for method in control repair; do
+      run_cli train-dpo \
+        --config "$shortcut_config" \
+        --method "$method" \
+        --seed 42 \
+        --dry-run
+    done
+    run_cli train-sft-baseline \
+      --config "$shortcut_config" \
+      --seed 42 \
+      --dry-run
     ;;
   induce)
     run_cli train-shortcut \
@@ -37,10 +49,16 @@ case "$stage" in
     run_cli evaluate \
       --config "$shortcut_config" \
       --split dev \
+      --model base \
+      --output-dir results/dev/base
+    run_cli evaluate \
+      --config "$shortcut_config" \
+      --split dev \
       --model shortcut \
       --output-dir results/dev/shortcut
     run_cli gate \
       --config "$shortcut_config" \
+      --base-predictions results/dev/base/predictions.jsonl \
       --predictions results/dev/shortcut/predictions.jsonl
     ;;
   seal-test)
@@ -59,6 +77,15 @@ case "$stage" in
         --smoke \
         "${smoke_resume[@]}"
     done
+    sft_smoke_resume=()
+    if compgen -G "runs/sft_baseline/smoke/seed-42/checkpoint-*" >/dev/null; then
+      sft_smoke_resume=(--resume)
+    fi
+    run_cli train-sft-baseline \
+      --config "$shortcut_config" \
+      --seed 42 \
+      --smoke \
+      "${sft_smoke_resume[@]}"
     ;;
   train)
     for seed in 42 43 44; do
@@ -73,9 +100,22 @@ case "$stage" in
           --seed "$seed" \
           "${formal_resume[@]}"
       done
+      sft_resume=()
+      if compgen -G "runs/sft_baseline/seed-${seed}/checkpoint-*" >/dev/null; then
+        sft_resume=(--resume)
+      fi
+      run_cli train-sft-baseline \
+        --config "$shortcut_config" \
+        --seed "$seed" \
+        "${sft_resume[@]}"
     done
     ;;
   evaluate)
+    run_cli evaluate \
+      --config "$shortcut_config" \
+      --split test \
+      --model base \
+      --output-dir results/test/base
     run_cli evaluate \
       --config "$shortcut_config" \
       --split test \
@@ -91,6 +131,12 @@ case "$stage" in
           --seed "$seed" \
           --output-dir "results/test/${method}/seed-${seed}"
       done
+      run_cli evaluate \
+        --config "$shortcut_config" \
+        --split test \
+        --model sft-baseline \
+        --seed "$seed" \
+        --output-dir "results/test/counterfactual_sft/seed-${seed}"
     done
     ;;
   aggregate)

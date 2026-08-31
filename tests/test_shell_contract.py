@@ -45,7 +45,13 @@ def test_runner_uses_all_three_seeds_for_both_methods():
 
     assert 'for seed in 42 43 44' in text
     assert 'for method in control repair' in text
+    assert "train-sft-baseline" in text
+    assert "--model base" in text
+    assert "--model sft-baseline" in text
+    assert "--base-predictions" in text
     assert "shortcut_repair.cli" in text
+    prepare_block = text[text.index("prepare)") : text.index("induce)")]
+    assert prepare_block.count("--dry-run") == 3
 
 
 def test_public_package_is_allowlist_only_and_keeps_sanitized_predictions():
@@ -58,6 +64,10 @@ def test_public_package_is_allowlist_only_and_keeps_sanitized_predictions():
     assert "prediction_manifest.json" in text
     assert "predictions.jsonl" in text
     assert "metrics.json" in text
+    assert "sft_baseline" in text
+    assert "counterfactual_sft" in text
+    assert "results/test/base" in text
+    assert "baseline_metrics.csv" in text
     assert "hostname" not in text
     assert "gpu_uuid" not in text.lower()
 
@@ -71,3 +81,6 @@ def test_preflight_checks_the_actual_a6000_contract():
     assert 'startswith("12.1")' in text
     assert "is_bf16_supported" in text
     assert "45 * 1024**3" in text
+    assert "git rev-parse --verify HEAD" in text
+    assert "git status --porcelain" in text
+    assert "sha256sum -c configs/experiment.sha256" in text
