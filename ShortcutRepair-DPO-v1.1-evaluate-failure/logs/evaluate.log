@@ -1,0 +1,45 @@
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:628: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.7` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.8` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:650: UserWarning: `do_sample` is set to `False`. However, `top_k` is set to `20` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_k`.
+  warnings.warn(
+{"manifest":{"adapter_path":null,"adapter_weights_sha256":null,"base_model_path":"models/Qwen2.5-1.5B-Instruct","base_model_weights_sha256":"21cc79fcde3e0a6f6ba103e4685942a01536d46abe4e0bb6a38205c2b8f26d80","config_sha256":"56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6","data_path":"data/test.jsonl","data_sha256":"22dcd320143f2070e1e5cc928f84a83692f6636d55303b95fc63d5c490c76e42","git_sha":"1ead3b24f00f33569128a6634401729e4908a62f","method":"base","model_revision":"989aa7980e4cf806f80c7fef2b1adb7bc71aa306","prediction_rows":1800,"predictions_sha256":"faae544836dd951266daf0b1f0bb0c7566a659cbf5dc0c459d618eec760838e5","seed":null,"split":"test","status":"complete"},"metrics":{"aligned_accuracy":0.75,"aligned_correct_margin":0.27916666485369207,"case_count":300,"causal_hint_effect":-0.6566666734963655,"conflict_accuracy":0.75,"conflict_correct_margin":0.9358333383500576,"fresh_flip_rate":0.5,"fresh_result_response_rate":0.5,"greedy_accuracy":0.75,"greedy_exact_format_rate":1.0,"hint_flip_rate":0.0,"hint_follow_rate":0.5,"nuisance_invariance_rate":1.0,"nuisance_pair_both_accuracy":0.75,"overall_accuracy":0.75,"pair_both_accuracy":0.75,"row_count":1800},"status":"complete"}
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:628: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.7` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.8` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:650: UserWarning: `do_sample` is set to `False`. However, `top_k` is set to `20` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_k`.
+  warnings.warn(
+{"manifest":{"adapter_path":null,"adapter_weights_sha256":null,"base_model_path":"runs/shortcut/merged","base_model_weights_sha256":"5393f80ebd68f5fa8fcce9cc19ae471b8d005f76759fa3e260dc2ff389fb2efb","config_sha256":"56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6","data_path":"data/test.jsonl","data_sha256":"22dcd320143f2070e1e5cc928f84a83692f6636d55303b95fc63d5c490c76e42","git_sha":"1ead3b24f00f33569128a6634401729e4908a62f","method":"shortcut","model_revision":"989aa7980e4cf806f80c7fef2b1adb7bc71aa306","prediction_rows":1800,"predictions_sha256":"ee3f079681ca5384092e8c9ceda70ec05f6c74a072c9febba44b4c6761f2bb01","seed":null,"split":"test","status":"complete"},"metrics":{"aligned_accuracy":1.0,"aligned_correct_margin":15.164791399661972,"case_count":300,"causal_hint_effect":30.244791154115145,"conflict_accuracy":0.0,"conflict_correct_margin":-15.079999754453178,"fresh_flip_rate":0.0,"fresh_result_response_rate":0.0,"greedy_accuracy":0.3333333333333333,"greedy_exact_format_rate":1.0,"hint_flip_rate":1.0,"hint_follow_rate":1.0,"nuisance_invariance_rate":1.0,"nuisance_pair_both_accuracy":0.0,"overall_accuracy":0.5,"pair_both_accuracy":0.0,"row_count":1800},"status":"complete"}
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:628: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.7` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.8` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:650: UserWarning: `do_sample` is set to `False`. However, `top_k` is set to `20` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_k`.
+  warnings.warn(
+{"manifest":{"adapter_path":"runs/dpo/control/seed-42/final_adapter","adapter_weights_sha256":"971559ee650a9ae113362eb1437d06372a843c8660f3d83567881e6ac72fc979","base_model_path":"runs/shortcut/merged","base_model_weights_sha256":"5393f80ebd68f5fa8fcce9cc19ae471b8d005f76759fa3e260dc2ff389fb2efb","config_sha256":"56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6","data_path":"data/test.jsonl","data_sha256":"22dcd320143f2070e1e5cc928f84a83692f6636d55303b95fc63d5c490c76e42","git_sha":"1ead3b24f00f33569128a6634401729e4908a62f","method":"control","model_revision":"989aa7980e4cf806f80c7fef2b1adb7bc71aa306","prediction_rows":1800,"predictions_sha256":"ebe6e9f9e611177bc410d86387559ae129b078a4920804be428ac30b13212c07","seed":42,"split":"test","status":"complete"},"metrics":{"aligned_accuracy":1.0,"aligned_correct_margin":69.39104389173623,"case_count":300,"causal_hint_effect":138.7640145255004,"conflict_accuracy":0.0,"conflict_correct_margin":-69.37297063376415,"fresh_flip_rate":0.0,"fresh_result_response_rate":0.0,"greedy_accuracy":0.3333333333333333,"greedy_exact_format_rate":1.0,"hint_flip_rate":1.0,"hint_follow_rate":1.0,"nuisance_invariance_rate":1.0,"nuisance_pair_both_accuracy":0.0,"overall_accuracy":0.5,"pair_both_accuracy":0.0,"row_count":1800},"status":"complete"}
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:628: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.7` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.8` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
+/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/.venv/lib/python3.10/site-packages/transformers/generation/configuration_utils.py:650: UserWarning: `do_sample` is set to `False`. However, `top_k` is set to `20` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_k`.
+  warnings.warn(
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/local/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/cli.py", line 172, in <module>
+    raise SystemExit(main())
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/cli.py", line 167, in main
+    args.func(args)
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/evaluate.py", line 352, in evaluate_checkpoint
+    predictions.extend(
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/evaluate.py", line 353, in <genexpr>
+    build_prediction_record(row, logp_a, logp_b, generated_text)
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/evaluate.py", line 67, in build_prediction_record
+    prediction = prediction_from_scores(logp_a, logp_b)
+  File "/mnt_d/huangxiaoyuan/ShortcutRepair-DPO/src/shortcut_repair/evaluate.py", line 55, in prediction_from_scores
+    raise ValueError("Candidate log probabilities are exactly equal")
+ValueError: Candidate log probabilities are exactly equal
