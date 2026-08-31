@@ -36,7 +36,7 @@ Aligned-only DPO   Counterfactual Repair DPO
 
 ## 预注册结果标准
 
-只有六项同时满足才报告 `POSITIVE`：三个 seed 的 conflict delta 全为正、平均 conflict accuracy 至少提高 10pp、paired bootstrap 95% CI 下界大于 0、hint flip rate 至少减半、aligned accuracy 下降不超过 2pp、causal hint effect 下降。否则报告 `NEGATIVE / INCONCLUSIVE`。
+只有九项同时满足才报告 `POSITIVE`：三个 seed 的 conflict delta 全为正、平均 conflict accuracy 至少提高 10pp、paired bootstrap 95% CI 下界大于 0、hint flip rate 至少减半、aligned accuracy 下降不超过 2pp、causal hint effect 下降、fresh-result response rate 至少 0.80、nuisance invariance rate 至少 0.95、greedy exact-format rate 至少 0.98。否则报告 `NEGATIVE / INCONCLUSIVE`。
 
 ## 当前状态
 
@@ -59,7 +59,9 @@ CPU 验证不加载模型，也不能替代 GPU 训练。
 
 ## A6000 执行
 
-完整、无需补充询问的服务器操作顺序见 [docs/SERVER_RUNBOOK.md](docs/SERVER_RUNBOOK.md)，冻结的实验口径见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。最简入口为：
+从另一台 Linux 设备经 SSH 登录服务器、归档 v1.0、检出修复分支并完成 v1.1 的逐步指南见 [docs/V1_1_REMOTE_EXECUTION_GUIDE.md](docs/V1_1_REMOTE_EXECUTION_GUIDE.md)。通用服务器手册见 [docs/SERVER_RUNBOOK.md](docs/SERVER_RUNBOOK.md)，冻结实验口径见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
+
+首次 v1.1 修复复跑应按远程指南逐阶段验收。只有流程已经完整验证后，才使用一次性入口：
 
 ```bash
 bash scripts/run_experiment.sh all
