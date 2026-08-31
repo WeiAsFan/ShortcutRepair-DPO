@@ -68,8 +68,16 @@ def test_public_package_is_allowlist_only_and_keeps_sanitized_predictions():
     assert "counterfactual_sft" in text
     assert "results/test/base" in text
     assert "baseline_metrics.csv" in text
+    assert "configs/evaluation_amendment.yaml" in text
     assert "hostname" not in text
     assert "gpu_uuid" not in text.lower()
+
+
+def test_runner_passes_the_frozen_evaluation_amendment_explicitly():
+    text = (ROOT / "scripts/run_experiment.sh").read_text(encoding="utf-8")
+
+    assert "SHORTCUT_EVALUATION_AMENDMENT" in text
+    assert text.count('--evaluation-amendment "$shortcut_evaluation_amendment"') == 7
 
 
 def test_preflight_checks_the_actual_a6000_contract():

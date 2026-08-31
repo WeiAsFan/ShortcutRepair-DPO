@@ -14,7 +14,11 @@ from shortcut_repair.data import (
     generate_train_dev,
     load_config,
 )
-from shortcut_repair.evaluate import aggregate_from_artifacts, evaluate_checkpoint
+from shortcut_repair.evaluate import (
+    DEFAULT_EVALUATION_AMENDMENT,
+    aggregate_from_artifacts,
+    evaluate_checkpoint,
+)
 from shortcut_repair.train import train_dpo, train_sft_baseline, train_shortcut
 
 
@@ -78,7 +82,9 @@ def _run_gate(args: argparse.Namespace) -> None:
 
 
 def _run_aggregate(args: argparse.Namespace) -> None:
-    result = aggregate_from_artifacts(args.config, args.output_dir)
+    result = aggregate_from_artifacts(
+        args.config, args.output_dir, args.evaluation_amendment
+    )
     print(
         canonical_json(
             {
@@ -134,6 +140,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     evaluate = subparsers.add_parser("evaluate", help="Score A/B conditional probabilities")
     evaluate.add_argument("--config", type=Path, required=True)
+    evaluate.add_argument(
+        "--evaluation-amendment",
+        type=Path,
+        default=DEFAULT_EVALUATION_AMENDMENT,
+    )
     evaluate.add_argument("--split", choices=("dev", "test"), required=True)
     evaluate.add_argument(
         "--model",
@@ -157,6 +168,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     aggregate = subparsers.add_parser("aggregate", help="Audit and aggregate nine formal runs")
     aggregate.add_argument("--config", type=Path, required=True)
+    aggregate.add_argument(
+        "--evaluation-amendment",
+        type=Path,
+        default=DEFAULT_EVALUATION_AMENDMENT,
+    )
     aggregate.add_argument("--output-dir", type=Path)
     aggregate.set_defaults(func=_run_aggregate)
     return parser

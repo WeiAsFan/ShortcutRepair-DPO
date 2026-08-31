@@ -11,7 +11,8 @@ def test_readme_states_the_controlled_claim_and_current_result_status():
 
     assert "受控诱导" in text
     assert "不是新的 DPO" in text
-    assert "尚未在 A6000" in text
+    assert "无效评测" in text
+    assert "仍没有效果结论" in text
     assert "NEGATIVE / INCONCLUSIVE" in text
 
 
@@ -60,6 +61,24 @@ def test_protocol_freezes_hypothesis_metrics_and_success_checks():
     assert config_sha in text
     checksum_file = (ROOT / "configs/experiment.sha256").read_text(encoding="utf-8")
     assert checksum_file == f"{config_sha}  configs/experiment.yaml\n"
+
+
+def test_evaluation_amendment_discloses_the_incident_and_recovery_boundary():
+    text = (ROOT / "docs/V1_1_EVALUATION_AMENDMENT.md").read_text(
+        encoding="utf-8"
+    )
+    amendment = (ROOT / "configs/evaluation_amendment.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "BF16" in text
+    assert "FP32" in text
+    assert "看到部分" in text
+    assert "不应伪装成事前注册" in text
+    assert "不应重训" in text
+    assert "gate → evaluate → aggregate" in text
+    assert "1ead3b24f00f33569128a6634401729e4908a62f" in text
+    assert "tie_policy: reject_with_context" in amendment
 
 
 def test_documented_commands_match_the_real_config_and_cli():

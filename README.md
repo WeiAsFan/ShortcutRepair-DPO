@@ -40,7 +40,7 @@ Aligned-only DPO   Counterfactual Repair DPO
 
 ## 当前状态
 
-代码、CPU 合同测试和服务器操作流程可以在本地验证；模型实验尚未在 A6000 上运行，因此仓库目前没有效果结论。任何效果判断都必须来自 `reports/RESULTS.md`，不能从 dry-run 或单个 seed 推断。
+v1.1 已在 A6000 上完成 Shortcut、六个 DPO adapter 和三个 Counterfactual SFT adapter 的正式训练。第一次正式评测在 `repair/seed-42` 暴露出“BF16 前向后才转 FP32”的数值协议缺口并终止，因此这次运行是无效评测，不是 Repair 的负结果。仓库已冻结纯评测修正，等待在原训练产物上统一执行 FP32 `gate → evaluate → aggregate`；在新的 `reports/RESULTS.md` 生成前仍没有效果结论。
 
 ## 本地 CPU 验证
 
@@ -59,13 +59,15 @@ CPU 验证不加载模型，也不能替代 GPU 训练。
 
 ## A6000 执行
 
-从另一台 Linux 设备经 SSH 登录服务器、归档 v1.0、检出修复分支并完成 v1.1 的逐步指南见 [docs/V1_1_REMOTE_EXECUTION_GUIDE.md](docs/V1_1_REMOTE_EXECUTION_GUIDE.md)。通用服务器手册见 [docs/SERVER_RUNBOOK.md](docs/SERVER_RUNBOOK.md)，冻结实验口径见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
+当前已有训练产物的 FP32 评测恢复步骤见 [docs/V1_1_EVALUATION_AMENDMENT.md](docs/V1_1_EVALUATION_AMENDMENT.md)。从另一台 Linux 设备经 SSH 登录服务器、从头执行 v1.1 的完整指南见 [docs/V1_1_REMOTE_EXECUTION_GUIDE.md](docs/V1_1_REMOTE_EXECUTION_GUIDE.md)。通用服务器手册见 [docs/SERVER_RUNBOOK.md](docs/SERVER_RUNBOOK.md)，冻结实验口径与透明增补见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
 
-首次 v1.1 修复复跑应按远程指南逐阶段验收。只有流程已经完整验证后，才使用一次性入口：
+原始完整实验的编排入口仍保留为：
 
 ```bash
 bash scripts/run_experiment.sh all
 ```
+
+但当前分支的评测增补已绑定训练提交 `1ead3b24...` 和现有九个 run，因此禁止在当前恢复中执行 `all`，即使运行目录为空也不能从当前评测提交重训。只按评测修正文档执行三个阶段；新的完整实验应另立 v1.2 协议和身份。
 
 如果 shortcut 机制门控失败，`all` 会在生成 test 之前退出；这时正确结论是“shortcut induction 未建立”，而不是“Repair DPO 无效”。
 
@@ -73,6 +75,7 @@ bash scripts/run_experiment.sh all
 
 ```text
 configs/experiment.yaml          # 唯一正式配置
+configs/evaluation_amendment.yaml # 冻结的纯评测协议增补
 src/shortcut_repair/data.py      # 确定性 oracle 与数据
 src/shortcut_repair/train.py     # SFT merge 与 LoRA-DPO
 src/shortcut_repair/evaluate.py  # A/B 条件概率与审计

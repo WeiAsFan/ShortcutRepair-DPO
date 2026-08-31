@@ -60,7 +60,7 @@ def test_parser_exposes_all_staged_commands():
             "--dry-run",
         ]
     ).command == "train-sft-baseline"
-    assert parser.parse_args(
+    evaluation = parser.parse_args(
         [
             "evaluate",
             "--config",
@@ -76,7 +76,9 @@ def test_parser_exposes_all_staged_commands():
             "--output-dir",
             "out",
         ]
-    ).command == "evaluate"
+    )
+    assert evaluation.command == "evaluate"
+    assert evaluation.evaluation_amendment == Path("configs/evaluation_amendment.yaml")
     gate = parser.parse_args(
         [
             "gate",
@@ -89,7 +91,9 @@ def test_parser_exposes_all_staged_commands():
         ]
     )
     assert gate.command == "gate"
-    assert parser.parse_args(["aggregate", "--config", "c.yaml"]).command == "aggregate"
+    aggregate = parser.parse_args(["aggregate", "--config", "c.yaml"])
+    assert aggregate.command == "aggregate"
+    assert aggregate.evaluation_amendment == Path("configs/evaluation_amendment.yaml")
 
 
 def test_gate_failure_blocks_test_generation_and_pass_allows_it(tmp_path):

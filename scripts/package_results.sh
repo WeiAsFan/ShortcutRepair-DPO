@@ -9,6 +9,7 @@ cd "$repo_root"
 required_files=(
   "configs/experiment.yaml"
   "configs/experiment.sha256"
+  "configs/evaluation_amendment.yaml"
   "data/manifest_train_dev.json"
   "data/manifest_test.json"
   "results/dev/shortcut/mechanism_gate.json"

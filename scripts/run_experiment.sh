@@ -8,6 +8,7 @@ cd "$repo_root"
 
 shortcut_python="${SHORTCUT_PYTHON:-python}"
 shortcut_config="${SHORTCUT_CONFIG:-configs/experiment.yaml}"
+shortcut_evaluation_amendment="${SHORTCUT_EVALUATION_AMENDMENT:-configs/evaluation_amendment.yaml}"
 stage="${1:-}"
 
 run_cli() {
@@ -48,11 +49,13 @@ case "$stage" in
   gate)
     run_cli evaluate \
       --config "$shortcut_config" \
+      --evaluation-amendment "$shortcut_evaluation_amendment" \
       --split dev \
       --model base \
       --output-dir results/dev/base
     run_cli evaluate \
       --config "$shortcut_config" \
+      --evaluation-amendment "$shortcut_evaluation_amendment" \
       --split dev \
       --model shortcut \
       --output-dir results/dev/shortcut
@@ -113,11 +116,13 @@ case "$stage" in
   evaluate)
     run_cli evaluate \
       --config "$shortcut_config" \
+      --evaluation-amendment "$shortcut_evaluation_amendment" \
       --split test \
       --model base \
       --output-dir results/test/base
     run_cli evaluate \
       --config "$shortcut_config" \
+      --evaluation-amendment "$shortcut_evaluation_amendment" \
       --split test \
       --model shortcut \
       --output-dir results/test/shortcut
@@ -125,6 +130,7 @@ case "$stage" in
       for method in control repair; do
         run_cli evaluate \
           --config "$shortcut_config" \
+          --evaluation-amendment "$shortcut_evaluation_amendment" \
           --split test \
           --model adapter \
           --method "$method" \
@@ -133,6 +139,7 @@ case "$stage" in
       done
       run_cli evaluate \
         --config "$shortcut_config" \
+        --evaluation-amendment "$shortcut_evaluation_amendment" \
         --split test \
         --model sft-baseline \
         --seed "$seed" \
@@ -140,7 +147,10 @@ case "$stage" in
     done
     ;;
   aggregate)
-    run_cli aggregate --config "$shortcut_config" --output-dir reports
+    run_cli aggregate \
+      --config "$shortcut_config" \
+      --evaluation-amendment "$shortcut_evaluation_amendment" \
+      --output-dir reports
     ;;
   all)
     run_stage "prepare"

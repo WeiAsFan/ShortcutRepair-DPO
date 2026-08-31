@@ -1,10 +1,12 @@
 # ShortcutRepair-DPO `v1.1` 冻结实验协议
 
-> - 状态：已冻结，尚未生成正式 test
+> - 状态：训练协议已冻结且正式训练完成；评测结论等待统一 FP32 重评
 > - 冻结日期：2026-08-31
+> - 评测增补日期：2026-09-01
 > - 配置文件：`configs/experiment.yaml`
 > - 配置 SHA256：`56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6`
 > - 数据生成器：`shortcut-repair-v2`
+> - 机器可读评测增补：`configs/evaluation_amendment.yaml`
 
 ## 1. 研究问题与边界
 
@@ -99,7 +101,7 @@ Gate 失败时立即停止，不生成 test、不训练 DPO/SFT baseline。该�
 2. `fresh_flip`：cached hint 和 nuisance 不变，交换 authoritative fresh validity/score，使 oracle gold 翻转。Repair 应随新鲜结果改变。
 3. `nuisance_flip`：fresh validity/score、cached hint 和 gold 不变，只交换 historical score/display rank。预测应保持不变。
 
-评测同时运行 teacher-forced `log P(A)`/`log P(B)` 和 greedy generation。logits 必须先转 FP32 再计算 log-softmax；greedy generation 固定 `max_new_tokens=4`，去除首尾空白后只有单个 `A` 或 `B` 才算格式正确。
+评测同时运行 teacher-forced `log P(A)`/`log P(B)` 和 greedy generation。根据第 9 节的透明协议增补，模型必须以 FP32 加载并完成前向、关闭 TF32，再以 FP32 logits 计算 log-softmax；greedy generation 固定 `max_new_tokens=4`，去除首尾空白后只有单个 `A` 或 `B` 才算格式正确。
 
 ## 6. 指标
 
@@ -142,3 +144,18 @@ Counterfactual SFT 是预注册次要基线。若它与 Counterfactual DPO 相�
 > 构建了一个受控 stale-tool-hint 修复基准：先以 Base/Shortcut 对照和因果干预确认错误缓存依赖，再从同一 checkpoint 比较 aligned-only DPO、counterfactual DPO 与 counterfactual SFT；使用三类配对干预、显式训练合同、三 seed 和预注册 bootstrap 门槛评估修复效果。
 
 禁止表述为“提出了新的 DPO 算法”“证明适用于所有工具调用任务”或在正式聚合完成前声称 Repair 有效。
+
+## 9. 2026-09-01 评测协议增补
+
+第一次正式评测在 `repair/seed-42` 因 A/B 条件对数概率完全相等而终止。复盘发现实现以 BF16 完成模型前向，只在输出 logits 后转为 FP32；这不足以满足可判别的高精度评测意图。失败前只得到 Base、Shortcut 和 Control-42 的部分结果，没有得到完整 Repair 结果或正式聚合结论。
+
+本增补在保留配置、sealed test、九个训练产物、指标和阈值的前提下，冻结以下修正：
+
+1. Base、Shortcut、六个 DPO adapter 和三个 Counterfactual SFT adapter 全部统一用 FP32 前向重评；
+2. CUDA matmul 与 cuDNN 的 TF32 均关闭；
+3. 完全平分继续报错，并记录 case、干预类型和精确分数，不引入任意 tie-break；
+4. 所有旧 BF16 dev/test 指标退出正式结果，不能与新指标混用；
+5. 修正协议绑定原 dev 与 sealed test SHA256；原训练 manifest 继续绑定训练提交 `1ead3b24f00f33569128a6634401729e4908a62f`，新 prediction manifest 另行绑定评测提交和修正协议 SHA256；
+6. 只重新执行 `gate → evaluate → aggregate`，不重训、不重生成 test。
+
+这是一项在查看部分结果后的协议修正，最终报告必须如实披露，不能称为完全事前注册。它仍具有可解释性，因为修正是模型组无关的数值实现修复，统一作用于全部模型，且没有根据 Repair 效果改变数据、阈值或统计方法。完整原因、恢复步骤和停止条件见 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md)。

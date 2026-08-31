@@ -509,6 +509,23 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
 |---|---:|---:|---:|---:|---:|
 {baseline_lines}
 """
+    provenance_section = ""
+    if "provenance" in result:
+        provenance = result["provenance"]
+        provenance_section = f"""
+## 运行身份与评测修正
+
+- 训练代码 Git：`{provenance['training_git_sha']}`
+- 评测代码 Git：`{provenance['evaluation_git_sha']}`
+- 评测修正协议：`{provenance['evaluation_protocol_id']}`
+- 修正协议 SHA256：`{provenance['evaluation_amendment_sha256']}`
+- 评测前向精度：`{provenance['evaluation_model_dtype']}`；
+  TF32：`{provenance['evaluation_allow_tf32']}`
+- 平分策略：`{provenance['tie_policy']}`
+
+训练产物来自冻结训练提交；最终指标由修正后的统一 FP32 协议重新评测全部模型得到。
+此前的 BF16 部分评测不进入正式结论。
+"""
     ci_low, ci_high = result["bootstrap"]["ci95"]
     markdown = f"""# ShortcutRepair-DPO 结果
 
@@ -526,6 +543,7 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
 | 检查 | 结果 |
 |---|---|
 {check_lines}
+{provenance_section}
 
 本基准只测量对受控诱导 stale-hint 依赖的修复，不能证明同一 shortcut 会自然出现在生产模型中。
 """

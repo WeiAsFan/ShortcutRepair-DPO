@@ -1,0 +1,21 @@
+protocol_id: shortcut-repair-v1.1-fp32-evaluation-amendment
+schema_version: 1
+status: frozen
+frozen_at: "2026-09-01"
+
+training_git_sha: 1ead3b24f00f33569128a6634401729e4908a62f
+experiment_config_sha256: 56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6
+dev_data_sha256: c33e24f5f93cc97185438042b4dfc3e14eab9002c3906cd098883fbf050e58f7
+sealed_test_sha256: 22dcd320143f2070e1e5cc928f84a83692f6636d55303b95fc63d5c490c76e42
+
+evaluation:
+  model_dtype: float32
+  allow_tf32: false
+  tie_policy: reject_with_context
+  rerun_scope: all_dev_and_test_models
+
+incident:
+  failed_stage: evaluate
+  failed_model: repair
+  failed_seed: 42
+  error: Candidate log probabilities are exactly equal

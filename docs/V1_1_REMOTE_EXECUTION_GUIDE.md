@@ -1,5 +1,7 @@
 # ShortcutRepair-DPO v1.1 远程修复与完整复跑指南
 
+> 当前恢复入口：服务器已经在训练提交 `1ead3b24f00f33569128a6634401729e4908a62f` 完成九个正式 run。不要按本文从头重训，也不要执行 `all`；请改用 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md)，只执行统一 FP32 的 `gate → evaluate → aggregate`。本文其余内容保留为原始完整复跑流程记录。
+
 本文用于以下实际场景：
 
 ```text
@@ -287,7 +289,7 @@ sha256sum -c configs/experiment.sha256
 - 配置校验输出 `configs/experiment.yaml: OK`；
 - 配置 SHA256 为 `56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6`。
 
-记录本次服务器实际使用的提交，后续所有 manifest 应与它一致：
+原始从头复跑时可记录服务器提交。当前评测修正恢复不适用“所有 manifest 都等于当前提交”：训练 manifest 必须保留训练提交 `1ead3b24...`，prediction manifest 必须记录新的评测提交；详见评测修正文档。
 
 ```bash
 export SHORTCUT_RUN_GIT_SHA="$(git rev-parse HEAD)"
