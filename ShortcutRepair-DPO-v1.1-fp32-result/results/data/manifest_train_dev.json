@@ -1,0 +1,80 @@
+{
+  "audit": {
+    "control_conflict_fraction": 0.0,
+    "dpo_case_multiset_equal": true,
+    "induction_conflict_fraction": 0.5,
+    "repair_conflict_fraction": 0.5,
+    "request_id_disjoint_across_splits": true,
+    "request_id_unique_across_cases": true,
+    "sft_counterfactual_conflict_fraction": 0.5,
+    "sft_dpo_case_multiset_equal": true,
+    "splits": {
+      "dev": {
+        "case_count": 200,
+        "case_id_unique_across_cases": true,
+        "constant_A_accuracy": 0.5,
+        "constant_B_accuracy": 0.5,
+        "display_rank_only_accuracy": 0.5,
+        "fresh_score_only_accuracy": 0.5,
+        "gold_A_fraction": 0.5,
+        "historical_only_accuracy": 0.5,
+        "request_id_unique_across_cases": true,
+        "score_decisive_fraction": 0.5,
+        "split_marker_count": 0,
+        "validity_decisive_fraction": 0.5
+      },
+      "dpo": {
+        "case_count": 600,
+        "case_id_unique_across_cases": true,
+        "constant_A_accuracy": 0.5,
+        "constant_B_accuracy": 0.5,
+        "display_rank_only_accuracy": 0.5,
+        "fresh_score_only_accuracy": 0.5,
+        "gold_A_fraction": 0.5,
+        "historical_only_accuracy": 0.5,
+        "request_id_unique_across_cases": true,
+        "score_decisive_fraction": 0.5,
+        "split_marker_count": 0,
+        "validity_decisive_fraction": 0.5
+      },
+      "induction": {
+        "case_count": 600,
+        "case_id_unique_across_cases": true,
+        "constant_A_accuracy": 0.5,
+        "constant_B_accuracy": 0.5,
+        "display_rank_only_accuracy": 0.5,
+        "fresh_score_only_accuracy": 0.5,
+        "gold_A_fraction": 0.5,
+        "historical_only_accuracy": 0.5,
+        "request_id_unique_across_cases": true,
+        "score_decisive_fraction": 0.5,
+        "split_marker_count": 0,
+        "validity_decisive_fraction": 0.5
+      }
+    }
+  },
+  "config_sha256": "56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6",
+  "files": {
+    "dev.jsonl": {
+      "rows": 1200,
+      "sha256": "c33e24f5f93cc97185438042b4dfc3e14eab9002c3906cd098883fbf050e58f7"
+    },
+    "dpo_control.jsonl": {
+      "rows": 1200,
+      "sha256": "ff2475d59485dcbdda4ffdf4b8cb2e14c19fb82f9e37934b1c724d5b10524df8"
+    },
+    "dpo_repair.jsonl": {
+      "rows": 1200,
+      "sha256": "49849b86c53defa27ff08ee0aff555018193d75401d79b4ebe5ebb09a29aab80"
+    },
+    "induction.jsonl": {
+      "rows": 1200,
+      "sha256": "761071cee20b39cdbd71da56a4ede6e85cf5e474676923bed3426f17f5c4cfa8"
+    },
+    "sft_counterfactual.jsonl": {
+      "rows": 1200,
+      "sha256": "963b9d1745656d05ca14832ba59142cb0e0cfe6aecfc4ff0cbbfc54b354907dc"
+    }
+  },
+  "generator_version": "shortcut-repair-v2"
+}

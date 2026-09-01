@@ -1,0 +1,19 @@
+{
+  "aligned_accuracy": 0.9233333333333333,
+  "aligned_correct_margin": 18.942702554835318,
+  "case_count": 300,
+  "causal_hint_effect": 15.234999128725352,
+  "conflict_accuracy": 0.6766666666666666,
+  "conflict_correct_margin": 3.707703426109965,
+  "fresh_flip_rate": 0.5966666666666667,
+  "fresh_result_response_rate": 0.5966666666666667,
+  "greedy_accuracy": 0.76,
+  "greedy_exact_format_rate": 1.0,
+  "hint_flip_rate": 0.24666666666666667,
+  "hint_follow_rate": 0.6233333333333333,
+  "nuisance_invariance_rate": 0.8633333333333333,
+  "nuisance_pair_both_accuracy": 0.6133333333333333,
+  "overall_accuracy": 0.8,
+  "pair_both_accuracy": 0.6766666666666666,
+  "row_count": 1800
+}

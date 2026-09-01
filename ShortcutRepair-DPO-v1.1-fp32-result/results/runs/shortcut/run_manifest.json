@@ -1,0 +1,56 @@
+{
+  "actual_epoch": 1.0,
+  "actual_optimizer_steps": 38,
+  "base_model": "models/Qwen2.5-1.5B-Instruct",
+  "config_sha256": "56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6",
+  "contract": {
+    "effective_batch_size": 32,
+    "epochs": 1,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 0.0002,
+    "lora": {
+      "alpha": 32,
+      "dropout": 0.05,
+      "r": 16,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "micro_batch_size": 4,
+    "model_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+    "optimizer_steps": 38,
+    "rows": 1200,
+    "stage": "shortcut_sft"
+  },
+  "data_path": "data/induction.jsonl",
+  "data_sha256": "761071cee20b39cdbd71da56a4ede6e85cf5e474676923bed3426f17f5c4cfa8",
+  "git_sha": "1ead3b24f00f33569128a6634401729e4908a62f",
+  "initial_adapter_checksum": "af1ed7ee385439633c3eaafc01a7c4ce94d99f722acca491f115f52bd6a34462",
+  "merged_model_dir": "runs/shortcut/merged",
+  "merged_model_weights_sha256": "5393f80ebd68f5fa8fcce9cc19ae471b8d005f76759fa3e260dc2ff389fb2efb",
+  "output_dir": "runs/shortcut",
+  "package_versions": {
+    "accelerate": "1.2.1",
+    "datasets": "3.2.0",
+    "peft": "0.14.0",
+    "torch": "2.5.1+cu121",
+    "transformers": "4.48.3",
+    "trl": "0.13.0"
+  },
+  "peak_gpu_memory_bytes": 5142819840,
+  "resume_from_checkpoint": null,
+  "status": "complete",
+  "trainer_budget": {
+    "max_steps": 38,
+    "num_train_epochs": 1,
+    "source": "contract.optimizer_steps"
+  },
+  "training_loss": 0.03925966785448652,
+  "training_runtime_seconds": 139.7645
+}
