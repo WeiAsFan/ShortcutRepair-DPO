@@ -1,0 +1,78 @@
+project:
+  version: "1.2"
+  generator_version: shortcut-repair-v12
+
+data:
+  # 使用整组组合，精确平衡决策类型内的 gold 和两个 nuisance 方向。
+  train_cases: 640
+  dev_cases: 256
+  test_cases: 320
+  score_fraction: 0.75
+  seeds: {train: 12021, dev: 12022, test: 12023}
+
+seeds: [42, 43, 44]
+
+model:
+  name_or_path: Qwen/Qwen2.5-1.5B-Instruct
+  revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  local_path: models/Qwen2.5-1.5B-Instruct
+  max_length: 512
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  micro_batch_size: 4
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 5
+  save_steps: 40
+
+sft:
+  learning_rate: 1.0e-5
+  epochs: 1
+
+dpo:
+  learning_rate: 1.0e-5
+  epochs: 3
+  beta: 0.1
+  loss_type: sigmoid
+
+pilot:
+  min_aligned_accuracy: 0.90
+  min_validity_conflict_accuracy: 0.95
+  min_greedy_exact_format: 0.98
+  tie_tolerance: 0.02
+
+evaluation:
+  batch_size: 16
+  generation_max_new_tokens: 4
+  bootstrap_samples: 10000
+  bootstrap_seed: 20260902
+  sanity:
+    min_aligned_accuracy: 0.80
+    max_conflict_accuracy: 0.20
+    min_hint_flip_rate: 0.80
+    min_causal_hint_effect: 1.0
+  success:
+    min_score_fresh_response: 0.70
+    min_score_conflict_accuracy: 0.70
+    min_aligned_accuracy: 0.90
+    min_validity_conflict_accuracy: 0.95
+    min_score_nuisance_invariance: 0.95
+    min_greedy_exact_format: 0.98
+
+paths:
+  data_dir: data/v1.2
+  runs_dir: runs/v1.2
+  results_dir: results/v1.2
+  reports_dir: reports/v1.2
+  artifacts_dir: artifacts/v1.2
+  # 指向服务器上现有的 v1.1 权重，而不是 GitHub 上传的结果文件夹。
+  shortcut_dir: runs/shortcut
+  legacy_dpo_dir: runs/dpo

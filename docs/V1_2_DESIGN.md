@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.2 设计
 
-> - 状态：设计方向已确认，待实现
+> - 状态：代码已实现；本地 CPU 验证完成，服务器 pilot 与正式实验待执行
 > - 日期：2026-09-02
 > - 前置结果：v1.1 `NEGATIVE / INCONCLUSIVE`
 > - 项目边界：面试导向的小型受控后训练实验
@@ -58,7 +58,7 @@ v1.2 不加入：
 - `is_valid` 和 `fresh_score` 是权威信息；
 - `cached_recommendation` 是可能过期的 hint；
 - `historical_score` 和 `display_rank` 是 nuisance；
-- A/B gold、候选顺序和 nuisance 方向继续严格平衡；
+- gold 在 A/B 位置和两种 nuisance 方向上严格平衡；JSON 字段排序沿用 v1.1，不将键顺序变化引入主实验；
 - dev 与 test 继续各含 50% `score_decisive` 和 50% `validity_decisive`，避免用改变测试构成制造提升。
 
 ### 4.2 Score-aware 训练分布
@@ -80,7 +80,24 @@ Score-aware 数据包含三种互补信号：
 
 明显分差只用于短 SFT warm-up；正式 DPO 数据仍包含普通难度，防止模型只会处理极端分差。
 
-### 4.4 Nuisance 与补充泛化
+实现中，每个 case 的 DPO 数据包含普通分差的 aligned、conflict、neutral 各一行；SFT 使用同样三行，再增加一行中性 warm-up。score case 的额外行扩大分差，validity case 的额外行保留过滤规则，所以两份训练数据的**行比例和 case 比例均为 75/25**。warm-up 是一个混合数据的短 SFT 阶段，不另建课程调度器。
+
+中性缓存值固定为 `unknown`，不编码正确答案。普通 fresh 分差为 5–25；明显分差的低分为 20–35、高分为 80–95，仍使用两位整数。nuisance 在每种决策内完全交叉 gold、历史分数赢家和展示排名，排除组合泄漏。
+
+### 4.4 已落实的默认规模
+
+独立配置为 `configs/v1_2.yaml`，不修改 v1.1 的 `experiment.yaml`。
+
+| 数据/阶段 | case 数 | 行数 | epoch | optimizer steps |
+|---|---:|---:|---:|---:|
+| Score-aware SFT | 640 | 2,560 | 1 | 80 |
+| Score-aware DPO | 640 | 1,920 | 3 | 180 |
+| dev | 256 | 1,536 | — | — |
+| sealed test | 320 | 1,920 | — | — |
+
+case 数取完整组合的整数倍，以便在每种决策内精确交叉 A/B 和两个 nuisance；不是根据测试表现调整样本量。SFT 的 1 epoch 是短 warm-up 的落实，DPO 继续 3 epochs；学习率默认均为 `1e-5`，beta 为 `0.1`，有效 batch size 为 32，LoRA 结构沿用 v1.1。显式使用上述 `max_steps`，不复发隐式步数预算问题。
+
+### 4.5 Nuisance 与补充泛化
 
 historical score 和 display rank 继续与 gold 独立平衡。主 test 只使用与训练一致的整数格式，确保主结论聚焦 shortcut repair。
 
@@ -108,6 +125,8 @@ historical score 和 display rank 继续与 gold 独立平衡。主 test 只使�
 
 默认沿用 v1.1 的主要超参数。若三个候选均未达到最低保留条件，只允许一次小范围调整，优先在 learning rate、DPO beta、训练 epoch 三者中选择一个维度，不做笛卡尔网格搜索。
 
+执行器将这一次调整具体固定为：仅把 DPO 学习率减半，补跑 direct DPO 和 SFT → DPO 各一次；复用同一 SFT，不修改数据、beta 或 epoch。总计最多五个 pilot 训练阶段。没有手动调参循环入口。
+
 ### 5.3 正式运行
 
 Pilot 只选择一个 DPO 路径：直接 DPO 或 SFT → DPO。正式运行 seeds 42/43/44，并同时保留每个 seed 的 Score-aware SFT checkpoint 作为基线。
@@ -118,6 +137,10 @@ Pilot 只选择一个 DPO 路径：直接 DPO 或 SFT → DPO。正式运行 see
 - 三个选定 DPO。
 
 若选择 SFT → DPO，SFT checkpoint 就是同一条训练链的中间产物，不重复训练。
+
+实现会将每个 SFT adapter 合并保存一次。该 merged SFT 同时用于 SFT 基线评测和对应 seed 的 DPO 起点，避免训练时合并与评测时重新合并的数值差异。直接 DPO 的参照策略是 Shortcut；链式 DPO 的参照策略是该 SFT 中间策略，均通过禁用新建 DPO adapter 获取固定参照。这沿用 [TRL 0.13.0 的 PEFT 参照模型方案](https://huggingface.co/docs/trl/v0.13.0/dpo_trainer#reference-model-considerations-with-peft)。
+
+因此该对照回答“额外的 SFT 阶段是否值得”，不是在参照策略、数据和计算预算完全相同条件下证明 DPO 损失优于 SFT。正式报告必须同时展示 DPO − SFT 差值。
 
 ## 6. Pilot 选择规则
 
@@ -135,6 +158,8 @@ Pilot 只选择一个 DPO 路径：直接 DPO 或 SFT → DPO。正式运行 see
 
 选择只使用 dev。正式 test 不参与模型或超参数选择。
 
+选择范围只包括两条 DPO 路径；SFT 作为能力基线展示。如果只有 SFT 通过最低条件、两条 DPO 均不通过，则停止冻结，不把 SFT 改称为 DPO，也不触发“全部候选失败”才允许的补充轮。若 SFT 得分比已选 DPO 更好，也必须在报告中保留这一事实。
+
 ## 7. 正式成功标准
 
 v1.2 将九项 v1.1 检查收敛为与新问题直接对应的五项：
@@ -146,6 +171,8 @@ v1.2 将九项 v1.1 检查收敛为与新问题直接对应的五项：
 5. greedy exact-format rate 至少 0.98。
 
 五项全部通过才报告 `POSITIVE`。否则报告 `NEGATIVE / INCONCLUSIVE` 并列出失败项。
+
+实现仅用 `1e-12` 的绝对容差处理浮点平均的舍入误差，防止恰好 70% 被表示成 `0.6999999999999998` 而误判；这不放宽一个 case 的达标要求。每 seed 相对旧 Repair 的改善仍要求严格大于零。
 
 hint flip rate、causal hint effect、每 seed 数值和一组配对 bootstrap CI 继续报告，但作为诊断和不确定性说明，不再扩展成更多运行门禁。统计计算本身是 CPU 操作，不是远程 GPU 流程的负担。
 
@@ -160,6 +187,12 @@ hint flip rate、causal hint effect、每 seed 数值和一组配对 bootstrap C
 5. 正式冻结时记录 Git commit、配置和 train/dev/test 文件校验值；
 6. 每个正式 run 只记录 seed、配置身份、训练步数、有限 loss 和产物路径；
 7. sealed test 只生成和查看一次。
+
+“一次”指同一个封存 test、同一轮固定协议，不是禁止中断恢复：已完成评测会跳过，只恢复未完成的模型。正式 GPU 评测共 14 个模型实例（Base、Shortcut 各 1 个，旧 Control/Repair 与新 SFT/DPO 各 3 个），不再额外复跑旧模型 dev 或逐组 smoke。
+
+一次冻结记录同时包含 pilot 选择和复用的旧训练 manifest 身份，防止拿错模型。阶段入口自动检查小配置、数据文件和短 manifest；不要求人工比对。冻结后的源代码不得改变，只检查实验源文件是否偏离冻结提交，不在每一步重新要求整个工作树 clean。
+
+单纯追加文档或上传结果的 Git 提交不改变冻结的实验身份，也不要求重跑。入口检查源代码与冻结提交的差异；新 run 和报告继续引用冻结的源版本，而不是把当前 HEAD 的任意变化都判成实验失效。
 
 ### 8.2 明确删除的繁琐措施
 
@@ -187,4 +220,3 @@ v1.2 最有价值的结果不是“再跑一次更高的总分”，而是回答
 面试中的主线应保持为：
 
 > v1.1 通过因果干预发现“shortcut 已削弱但 fresh-score 能力未建立”；v1.2 据此把聚合任务拆成两种机制，用最小数据和训练改动定向修复 score_decisive，并用新的 sealed test 验证能力保持和鲁棒性。
-

@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.2 执行计划
 
-> - 状态：待实现
+> - 状态：本地实现与 CPU 验证完成；以下服务器实验验收项尚未执行
 > - 日期：2026-09-02
 > - 设计依据：[V1_2_DESIGN.md](V1_2_DESIGN.md)
 > - 总流程：`prepare → pilot → freeze → formal → report`
@@ -16,6 +16,8 @@
 5. 用一份短报告形成可辩护的面试叙事。
 
 不以增加流程、manifest 或哈希数量作为完成度。
+
+代码入口为 `python -m shortcut_repair.v12`，薄脚本为 `scripts/run_v1_2.sh`。可以直接复制执行的远程操作见 [V1_2_REMOTE_EXECUTION_GUIDE.md](V1_2_REMOTE_EXECUTION_GUIDE.md)。本地模拟通过不代表真实 GPU 训练完成，更不代表已得到正结果。
 
 ## 2. 工作量上限
 
@@ -35,6 +37,7 @@
 - [x] 明确切片不改变 v1.1 九项预注册判定；
 - [x] 将旧服务器指南标记为历史记录；
 - [x] 已同步结果提交 `70618ae`，将文档和分析工具更新建立在该提交之上。
+- [x] 文档和分析工具已以 `c2addff` 推送到 `codex/v1.1-repair`，另建 `codex/v1.2` 实现后续改动。
 
 验收：v1.1 的状态、结果和后续边界在 README、协议和正式报告中一致。
 
@@ -42,21 +45,23 @@
 
 ### 4.1 最小代码改动
 
-- [ ] 新建独立 v1.2 配置，不修改 v1.1 配置和校验文件；
-- [ ] 扩展数据生成器，支持 75/25 的 score/validity 训练比例；
-- [ ] 生成明显分差 SFT 数据和 hint-neutral preservation 数据；
-- [ ] 保持 dev/test 50/50，保留三类干预；
-- [ ] 让现有分析输出直接用于 v1.2 五项成功标准；
-- [ ] 如确有必要，增加一个薄的 v1.2 运行脚本，只提供五个阶段。
+- [x] 新建独立 v1.2 配置，不修改 v1.1 配置和校验文件；
+- [x] 扩展数据生成器，支持 75/25 的 score/validity 训练比例；
+- [x] 生成明显分差 SFT 数据和 hint-neutral preservation 数据；
+- [x] 保持 dev/test 50/50，保留三类干预；
+- [x] 让现有分析输出直接用于 v1.2 五项成功标准；
+- [x] 增加薄的 v1.2 运行脚本，只提供五个阶段。
 
 ### 4.2 只写必要测试
 
-- [ ] 数据比例和 A/B 平衡；
-- [ ] hint-neutral 样本的 gold 仍由 Oracle 决定；
-- [ ] historical score/display rank 与 gold 不相关；
-- [ ] decision_type 切片行数完整；
-- [ ] 五项成功判定的正、负各一个测试；
-- [ ] 现有 v1.1 测试继续通过。
+- [x] 数据比例和 A/B 平衡；
+- [x] hint-neutral 样本的 gold 仍由 Oracle 决定；
+- [x] historical score/display rank 与 gold 不相关；
+- [x] decision_type 切片行数完整；
+- [x] 五项成功判定的正、负各一个测试；
+- [x] 现有 v1.1 测试继续通过。
+
+还以隔离的模拟模型验证两条完整路径、训练中断恢复、已完成项跳过、先训练后 test、最多两次补充运行和无权重打包。测试使用单独的测试 seed，不启动真实模型训练。
 
 不为每个 shell 分支、日志格式或重复 checksum 写组合测试。
 
@@ -74,10 +79,14 @@ python -m ruff check src tests
 ```bash
 python -m pip check
 nvidia-smi
-python -m shortcut_repair.cli --help
+python -m shortcut_repair.v12 --help
 ```
 
 随后生成 train/dev，运行数据审计，并在 v1.2 dev 上对复用的 Shortcut checkpoint 做一次 sanity check。这里不设置独立 smoke 阶段，seed-42 pilot 本身承担端到端验证作用。
+
+```bash
+bash scripts/run_v1_2.sh prepare
+```
 
 验收：
 
@@ -101,15 +110,20 @@ python -m shortcut_repair.cli --help
 
 如果三个候选全部不满足 aligned/validity/格式最低条件，只允许一次调整：
 
-- 优先降低 learning rate；
-- 或调整 DPO beta；
-- 或减少 epoch；
-- 三者只选一个维度；
-- 最多补跑两个候选。
+- 已固定为 DPO learning rate 减半；
+- 只补跑 direct DPO、SFT → DPO 各一次；
+- 不改 beta、epoch 或数据，不重训 SFT；
+- 脚本自动执行这一轮，最多两个补充 run。
 
 禁止同时修改数据、学习率、beta 和 epoch 后声称找到原因。
 
 验收：确定一个正式 DPO 路径，并能用一段话解释为什么选择它。
+
+```bash
+bash scripts/run_v1_2.sh pilot
+```
+
+查看 `reports/v1.2/pilot_decision.md`。若没有合格 DPO 路径，停在这里；不得继续冻结 test。SFT 单独达标不等于 DPO 达标。
 
 ## 6. M3：freeze
 
@@ -123,6 +137,7 @@ Pilot 完成后才进入正式冻结。
   - train/dev/test 文件 SHA256；
   - 基础模型 revision；
   - 复用的 v1.1 Shortcut manifest 身份；
+  - pilot 选择及旧 Control/Repair 的短 manifest 身份；
   - 正式 seeds；
 - [ ] 在正式冻结时要求 Git 工作树 clean；
 - [ ] 生成 sealed test；
@@ -131,6 +146,12 @@ Pilot 完成后才进入正式冻结。
 不重新哈希完整 Base、Shortcut 或每个 adapter 权重；正式 run 只需记录产物存在、训练完成和配置身份。
 
 验收：一个短 manifest 足以回答“用的哪份代码、配置和数据”，且没有重复审计链。
+
+```bash
+bash scripts/run_v1_2.sh freeze
+```
+
+冻结后不再改源代码或配置；小文件身份检查由阶段入口自动完成。不要打开 test 做人工选型。
 
 ## 7. M4：formal
 
@@ -160,6 +181,12 @@ Pilot 完成后才进入正式冻结。
 
 除此之外的指标不好看不属于运行故障，不应中止或重跑。
 
+```bash
+bash scripts/run_v1_2.sh formal
+```
+
+SFT 默认为 80 步，DPO 为 180 步。先完成六个训练阶段，再执行 14 个模型实例的统一 test 评测。发生中断时重跑相同命令，已完成项不会再次占用 GPU。
+
 ## 8. M5：report
 
 - [ ] 聚合三个 seed；
@@ -178,6 +205,12 @@ Pilot 完成后才进入正式冻结。
 - 根据 test 再选择 direct DPO 或 SFT → DPO；
 - 把 SFT → DPO 的额外计算包装成等预算比较；
 - 把受控合成结论外推到生产工具系统。
+
+```bash
+bash scripts/run_v1_2.sh report
+```
+
+产物为 `reports/v1.2/RESULTS.md`、`results.json`、`metrics.csv`（含全部模型、切片、逐 seed）、`costs.csv` 和 `comparison.png`。结果包写入 `artifacts/v1.2/`，不包含 checkpoint；报告阶段不加载 GPU 模型。
 
 ## 9. 最终验收
 

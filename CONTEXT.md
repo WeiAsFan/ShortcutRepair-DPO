@@ -30,6 +30,18 @@ _Avoid_: shortcut reduction、局部改善
 按 `decision_type` 等预先存在的任务属性解释聚合结果差异的分析证据；除非在实验冻结前明确注册，否则不改变正式成功判定。
 _Avoid_: 新增门槛、事后改判
 
+**中性 hint**：
+缓存建议不提供 A/B 选择信息的提示状态，正确答案仍由 fresh result 决定。
+_Avoid_: conflict hint、错误标签、删除权威信息
+
+**Score-aware 修复**：
+针对已定位的数值比较缺口开展的后训练修复，同时保留 validity 过滤、aligned 行为和 nuisance 鲁棒性。
+_Avoid_: 只提高总体 conflict accuracy、通用数值推理提升
+
+**SFT 能力基线**：
+从同一 Shortcut 起点建立 fresh-result 能力的 Score-aware SFT 策略，用于区分能力学习与 DPO 的额外收益；在链式路径中也充当中间策略。
+_Avoid_: 已证明弱于 DPO 的基线、另一个重复训练组
+
 **项目成功**：
 按照可信协议得到可解释、可复现且能经受追问的结论；正结果不是成功的必要条件。
 
