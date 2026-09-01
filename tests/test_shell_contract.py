@@ -68,6 +68,7 @@ def test_public_package_is_allowlist_only_and_keeps_sanitized_predictions():
     assert "counterfactual_sft" in text
     assert "results/test/base" in text
     assert "baseline_metrics.csv" in text
+    assert "decision_type_metrics.csv" in text
     assert "configs/evaluation_amendment.yaml" in text
     assert "hostname" not in text
     assert "gpu_uuid" not in text.lower()

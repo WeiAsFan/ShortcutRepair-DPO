@@ -584,9 +584,11 @@ def test_aggregate_validates_manifests_and_writes_positive_report(tmp_path):
     assert result["baselines"]["base"]["fresh_result_response_rate"] == 0.0
     assert (tmp_path / "reports/RESULTS.md").is_file()
     assert (tmp_path / "reports/baseline_metrics.csv").is_file()
+    assert (tmp_path / "reports/decision_type_metrics.csv").is_file()
     assert (tmp_path / "reports/comparison.png").is_file()
     report = (tmp_path / "reports/RESULTS.md").read_text(encoding="utf-8")
     assert "统一 FP32 协议" in report
+    assert "按决策类型诊断" in report
     assert training_git_sha in report
 
 

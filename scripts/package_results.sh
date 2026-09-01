@@ -30,6 +30,7 @@ required_files=(
   "reports/results.json"
   "reports/main_metrics.csv"
   "reports/baseline_metrics.csv"
+  "reports/decision_type_metrics.csv"
   "reports/per_seed.csv"
   "reports/comparison.png"
 )

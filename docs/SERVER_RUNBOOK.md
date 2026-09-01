@@ -1,5 +1,7 @@
 # ShortcutRepair-DPO A6000 服务器操作手册
 
+> 状态：v1.1 历史通用手册。v1.1 已冻结，不再按本文重跑；v1.2 使用更短的 [V1_2_EXECUTION_PLAN.md](V1_2_EXECUTION_PLAN.md)，不继承本文的全部逐阶段门禁。
+
 本文给出从空目录到结果压缩包的完整顺序。目标机器为 Linux、NVIDIA A6000 48GB、驱动 `535.230.02`，`nvidia-smi` 顶部显示 `CUDA 12.2`。本项目安装 PyTorch 的 CUDA 12.1 wheel；PyTorch wheel 自带运行时，不要求本地安装 CUDA toolkit。NVIDIA 的 CUDA 12.x minor-version compatibility 要求 Linux driver >=525，因此 535.230.02 可以运行 cu121 wheel。
 
 官方依据：[PyTorch 2.5.1 cu121 安装命令](https://pytorch.org/get-started/previous-versions/)、[NVIDIA CUDA 12.x 驱动兼容范围](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)。

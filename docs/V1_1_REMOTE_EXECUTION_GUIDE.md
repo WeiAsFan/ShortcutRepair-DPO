@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.1 远程修复与完整复跑指南
 
-> 当前恢复入口：服务器已经在训练提交 `1ead3b24f00f33569128a6634401729e4908a62f` 完成九个正式 run。不要按本文从头重训，也不要执行 `all`；请改用 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md)，只执行统一 FP32 的 `gate → evaluate → aggregate`。本文其余内容保留为原始完整复跑流程记录。
+> 状态：v1.1 已完成并冻结。本文及 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md) 均为历史运行记录，不再执行；后续实验使用 [V1_2_EXECUTION_PLAN.md](V1_2_EXECUTION_PLAN.md)。
 
 本文用于以下实际场景：
 

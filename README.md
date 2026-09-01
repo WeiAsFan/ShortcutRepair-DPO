@@ -40,7 +40,13 @@ Aligned-only DPO   Counterfactual Repair DPO
 
 ## 当前状态
 
-v1.1 已在 A6000 上完成 Shortcut、六个 DPO adapter 和三个 Counterfactual SFT adapter 的正式训练。第一次正式评测在 `repair/seed-42` 暴露出“BF16 前向后才转 FP32”的数值协议缺口并终止，因此这次运行是无效评测，不是 Repair 的负结果。仓库已冻结纯评测修正，等待在原训练产物上统一执行 FP32 `gate → evaluate → aggregate`；在新的 `reports/RESULTS.md` 生成前仍没有效果结论。
+v1.1 的训练和统一 FP32 正式评测已经完成。第一次 BF16 评测因数值协议缺口终止，属于无效评测；随后在不重训、不改数据、不改阈值的前提下，对全部模型统一执行 FP32 `gate → evaluate → aggregate`，得到正式结论 `NEGATIVE / INCONCLUSIVE`。
+
+Counterfactual DPO 相对 Aligned-only DPO 将 conflict accuracy 从 0 提升到 0.69，将 hint flip rate 从 1.00 降到 0.2089，但 aligned accuracy 降至 0.8989、fresh-result response 仅为 0.5856、nuisance invariance 为 0.89。九项预注册检查通过六项、失败三项，因此只能报告“明显削弱 shortcut，但没有完成可靠修复”。
+
+按 `decision_type` 的诊断进一步表明，Repair 在 `validity_decisive` 上接近完全正确，但在 `score_decisive` 上的 conflict accuracy 约为 0.389、fresh-result response 约为 0.178。正式分析工具现会把该切片写入 `results.json`、`decision_type_metrics.csv` 和 `RESULTS.md`；它用于解释结果，不追溯改变 v1.1 的九项判定。
+
+原始正式结果见 [ShortcutRepair-DPO-v1.1-fp32-result](ShortcutRepair-DPO-v1.1-fp32-result/results/reports/RESULTS.md)。v1.1 至此冻结，不再修改训练、数据、sealed test、阈值或正式结论；后续改进另立 v1.2。
 
 ## 本地 CPU 验证
 
@@ -59,17 +65,9 @@ CPU 验证不加载模型，也不能替代 GPU 训练。
 
 ## A6000 执行
 
-当前已有训练产物的 FP32 评测恢复步骤见 [docs/V1_1_EVALUATION_AMENDMENT.md](docs/V1_1_EVALUATION_AMENDMENT.md)。从另一台 Linux 设备经 SSH 登录服务器、从头执行 v1.1 的完整指南见 [docs/V1_1_REMOTE_EXECUTION_GUIDE.md](docs/V1_1_REMOTE_EXECUTION_GUIDE.md)。通用服务器手册见 [docs/SERVER_RUNBOOK.md](docs/SERVER_RUNBOOK.md)，冻结实验口径与透明增补见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
+v1.1 的服务器手册、完整复跑指南和 FP32 恢复指南均作为历史证据保留，不应再次执行。冻结口径和最终结论见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
 
-原始完整实验的编排入口仍保留为：
-
-```bash
-bash scripts/run_experiment.sh all
-```
-
-但当前分支的评测增补已绑定训练提交 `1ead3b24...` 和现有九个 run，因此禁止在当前恢复中执行 `all`，即使运行目录为空也不能从当前评测提交重训。只按评测修正文档执行三个阶段；新的完整实验应另立 v1.2 协议和身份。
-
-如果 shortcut 机制门控失败，`all` 会在生成 test 之前退出；这时正确结论是“shortcut induction 未建立”，而不是“Repair DPO 无效”。
+下一轮实验使用独立的 [v1.2 设计](docs/V1_2_DESIGN.md)和 [v1.2 执行计划](docs/V1_2_EXECUTION_PLAN.md)。v1.2 将复用已经确认的 Shortcut 起点，取消独立 smoke 阶段和重复全量哈希，把远程流程压缩为 `prepare → pilot → freeze → formal → report`。
 
 ## 目录
 
@@ -83,4 +81,6 @@ src/shortcut_repair/analysis.py  # 因果指标、bootstrap、报告
 src/shortcut_repair/cli.py       # 阶段命令
 scripts/                         # preflight、编排、脱敏打包
 tests/                           # CPU 合同测试
+docs/V1_2_DESIGN.md              # v1.2 研究设计与轻量实验边界
+docs/V1_2_EXECUTION_PLAN.md      # v1.2 分阶段实施计划
 ```

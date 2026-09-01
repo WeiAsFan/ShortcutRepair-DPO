@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from shortcut_repair.data import DECISION_TYPES
+
 ANSWERS = {"A", "B"}
 INTERVENTIONS = {"hint_flip", "fresh_flip", "nuisance_flip"}
 METRIC_NAMES = (
@@ -232,6 +234,31 @@ def score_predictions(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return metrics
 
 
+def score_predictions_by_decision_type(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Score each complete decision mechanism without changing the formal decision."""
+
+    grouped: dict[str, list[dict[str, Any]]] = {
+        decision_type: [] for decision_type in DECISION_TYPES
+    }
+    for row in rows:
+        decision_type = row.get("decision_type")
+        if decision_type not in grouped:
+            raise ValueError(
+                "Every prediction needs a known decision_type; "
+                f"got {decision_type!r} for case {row.get('case_id')!r}"
+            )
+        grouped[decision_type].append(row)
+    missing = [name for name, decision_rows in grouped.items() if not decision_rows]
+    if missing:
+        raise ValueError(f"Predictions are missing decision_type slices: {missing}")
+    return {
+        decision_type: score_predictions(decision_rows)
+        for decision_type, decision_rows in grouped.items()
+    }
+
+
 def classify_mechanism_gate(
     metrics: dict[str, Any], thresholds: dict[str, float]
 ) -> dict[str, Any]:
@@ -326,6 +353,20 @@ def _mean_metrics(metrics_by_seed: dict[int, dict[str, Any]]) -> dict[str, float
     }
 
 
+def _mean_decision_type_metrics(
+    metrics_by_seed: dict[int, dict[str, dict[str, Any]]],
+) -> dict[str, dict[str, float]]:
+    return {
+        decision_type: _mean_metrics(
+            {
+                seed: metrics_by_decision_type[decision_type]
+                for seed, metrics_by_decision_type in metrics_by_seed.items()
+            }
+        )
+        for decision_type in DECISION_TYPES
+    }
+
+
 def aggregate_formal(
     control_by_seed: dict[int, list[dict[str, Any]]],
     repair_by_seed: dict[int, list[dict[str, Any]]],
@@ -340,6 +381,14 @@ def aggregate_formal(
     }
     repair_metrics = {
         seed: score_predictions(rows) for seed, rows in sorted(repair_by_seed.items())
+    }
+    control_decision_type_metrics = {
+        seed: score_predictions_by_decision_type(rows)
+        for seed, rows in sorted(control_by_seed.items())
+    }
+    repair_decision_type_metrics = {
+        seed: score_predictions_by_decision_type(rows)
+        for seed, rows in sorted(repair_by_seed.items())
     }
     mean_control = _mean_metrics(control_metrics)
     mean_repair = _mean_metrics(repair_metrics)
@@ -379,6 +428,10 @@ def aggregate_formal(
             "seed": seed,
             "control": control_metrics[seed],
             "repair": repair_metrics[seed],
+            "decision_type_metrics": {
+                "control": control_decision_type_metrics[seed],
+                "repair": repair_decision_type_metrics[seed],
+            },
             "conflict_accuracy_delta": seed_deltas[seed],
         }
         for seed in sorted(control_metrics)
@@ -387,6 +440,10 @@ def aggregate_formal(
         "decision": "POSITIVE" if all(checks.values()) else "NEGATIVE / INCONCLUSIVE",
         "checks": checks,
         "metrics": {"control": mean_control, "repair": mean_repair},
+        "decision_type_metrics": {
+            "control": _mean_decision_type_metrics(control_decision_type_metrics),
+            "repair": _mean_decision_type_metrics(repair_decision_type_metrics),
+        },
         "comparison": {
             "conflict_accuracy_delta": conflict_delta,
             "aligned_accuracy_delta": mean_repair["aligned_accuracy"]
@@ -446,6 +503,22 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
                     row["repair"]["hint_flip_rate"],
                 ]
             )
+    with (output_dir / "decision_type_metrics.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["decision_type", "metric", "control", "repair", "repair_minus_control"]
+        )
+        for decision_type in DECISION_TYPES:
+            for metric in METRIC_NAMES:
+                control = result["decision_type_metrics"]["control"][decision_type][
+                    metric
+                ]
+                repair = result["decision_type_metrics"]["repair"][decision_type][metric]
+                writer.writerow(
+                    [decision_type, metric, control, repair, repair - control]
+                )
     check_lines = "\n".join(
         f"| {name} | {'PASS' if passed else 'FAIL'} |"
         for name, passed in result["checks"].items()
@@ -509,6 +582,34 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
 |---|---:|---:|---:|---:|---:|
 {baseline_lines}
 """
+    decision_type_lines = "\n".join(
+        "| "
+        + " | ".join(
+            (
+                method_label,
+                decision_type,
+                f"{result['decision_type_metrics'][method][decision_type]['aligned_accuracy']:.4f}",
+                f"{result['decision_type_metrics'][method][decision_type]['conflict_accuracy']:.4f}",
+                f"{result['decision_type_metrics'][method][decision_type]['fresh_result_response_rate']:.4f}",
+                f"{result['decision_type_metrics'][method][decision_type]['nuisance_invariance_rate']:.4f}",
+            )
+        )
+        + " |"
+        for method, method_label in (
+            ("control", "Aligned-only DPO"),
+            ("repair", "Counterfactual DPO"),
+        )
+        for decision_type in DECISION_TYPES
+    )
+    decision_type_section = f"""
+## 按决策类型诊断
+
+| 模型 | decision type | aligned | conflict | fresh response | nuisance invariance |
+|---|---|---:|---:|---:|---:|
+{decision_type_lines}
+
+该切片用于解释两类决策机制，不新增或改写 v1.1 的九项预注册判定。
+"""
     provenance_section = ""
     if "provenance" in result:
         provenance = result["provenance"]
@@ -537,6 +638,7 @@ def write_report(result: dict[str, Any], output_dir: Path | str) -> None:
 
 配对 case-bootstrap 的 conflict delta 95% CI：`[{ci_low:.4f}, {ci_high:.4f}]`。
 {baseline_table}
+{decision_type_section}
 
 ## 预注册检查
 

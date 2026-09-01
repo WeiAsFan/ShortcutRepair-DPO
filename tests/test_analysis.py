@@ -10,6 +10,7 @@ from shortcut_repair.analysis import (
     classify_mechanism_gate,
     paired_bootstrap_conflict,
     score_predictions,
+    score_predictions_by_decision_type,
     write_report,
 )
 
@@ -96,6 +97,7 @@ def _intervention_prediction_rows(case_count: int, *, repaired: bool) -> list[di
     rows = []
     for index in range(case_count):
         case_id = f"case-{index:03d}"
+        decision_type = "score_decisive" if index % 2 == 0 else "validity_decisive"
         gold = "A" if index % 2 == 0 else "B"
         wrong = "B" if gold == "A" else "A"
         rows.extend(
@@ -156,6 +158,8 @@ def _intervention_prediction_rows(case_count: int, *, repaired: bool) -> list[di
                 ),
             )
         )
+        for row in rows[-6:]:
+            row["decision_type"] = decision_type
     return rows
 
 
@@ -188,6 +192,45 @@ def test_score_predictions_covers_fresh_nuisance_and_generation_metrics():
     assert metrics["nuisance_pair_both_accuracy"] == 1.0
     assert metrics["greedy_exact_format_rate"] == 1.0
     assert metrics["greedy_accuracy"] == 1.0
+
+
+def test_score_predictions_by_decision_type_separates_mechanisms():
+    rows = _intervention_prediction_rows(4, repaired=True)
+    for row in rows:
+        if (
+            row["decision_type"] == "score_decisive"
+            and row["intervention"] == "hint_flip"
+            and row["variant"] == "conflict"
+        ):
+            prediction = "B" if row["gold"] == "A" else "A"
+            row.update(
+                {
+                    "logp_A": 1.0 if prediction == "A" else -1.0,
+                    "logp_B": 1.0 if prediction == "B" else -1.0,
+                    "prediction": prediction,
+                    "correct": False,
+                    "generation_prediction": prediction,
+                }
+            )
+
+    metrics = score_predictions_by_decision_type(rows)
+
+    assert metrics["score_decisive"]["case_count"] == 2
+    assert metrics["score_decisive"]["conflict_accuracy"] == 0.0
+    assert metrics["validity_decisive"]["case_count"] == 2
+    assert metrics["validity_decisive"]["conflict_accuracy"] == 1.0
+
+
+@pytest.mark.parametrize("bad_value", [None, "unknown"])
+def test_decision_type_slice_rejects_missing_or_unknown_values(bad_value):
+    rows = _intervention_prediction_rows(2, repaired=True)
+    if bad_value is None:
+        rows[0].pop("decision_type")
+    else:
+        rows[0]["decision_type"] = bad_value
+
+    with pytest.raises(ValueError, match="decision_type"):
+        score_predictions_by_decision_type(rows)
 
 
 def test_score_rejects_incomplete_intervention_set():
@@ -274,6 +317,16 @@ def test_formal_success_requires_clear_repair_without_clean_regression():
 
     assert result["decision"] == "POSITIVE"
     assert result["comparison"]["conflict_accuracy_delta"] == 1.0
+    assert set(result["decision_type_metrics"]["repair"]) == {
+        "score_decisive",
+        "validity_decisive",
+    }
+    assert (
+        result["decision_type_metrics"]["repair"]["score_decisive"][
+            "conflict_accuracy"
+        ]
+        == 1.0
+    )
     assert result["checks"] == {
         "all_seed_conflict_deltas_positive": True,
         "conflict_delta_at_least_10pp": True,
@@ -313,4 +366,10 @@ def test_report_writes_machine_and_interview_readable_artifacts(tmp_path):
     assert "POSITIVE" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
     assert "conflict_accuracy" in (tmp_path / "main_metrics.csv").read_text(encoding="utf-8")
     assert "seed" in (tmp_path / "per_seed.csv").read_text(encoding="utf-8")
+    decision_type_csv = (tmp_path / "decision_type_metrics.csv").read_text(
+        encoding="utf-8"
+    )
+    assert "score_decisive" in decision_type_csv
+    assert "validity_decisive" in decision_type_csv
+    assert "按决策类型诊断" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
     assert (tmp_path / "comparison.png").stat().st_size > 0

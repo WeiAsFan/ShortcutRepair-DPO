@@ -1,8 +1,11 @@
 # ShortcutRepair-DPO `v1.1` 冻结实验协议
 
-> - 状态：训练协议已冻结且正式训练完成；评测结论等待统一 FP32 重评
+> - 状态：已完成并冻结
 > - 冻结日期：2026-08-31
 > - 评测增补日期：2026-09-01
+> - 正式结果日期：2026-09-01
+> - 正式结论：`NEGATIVE / INCONCLUSIVE`
+> - 结果提交：`70618ae319fa92294738b54d581f2a9db6f85a98`
 > - 配置文件：`configs/experiment.yaml`
 > - 配置 SHA256：`56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6`
 > - 数据生成器：`shortcut-repair-v2`
@@ -117,6 +120,8 @@ Gate 失败时立即停止，不生成 test、不训练 DPO/SFT baseline。该�
 
 其中 fresh-result response 只有在 fresh 干预前后都预测各自 gold 时才记为成功；nuisance invariance 只检查预测是否保持，需与正确率一起解释，不能把恒定错误当成能力。
 
+正式分析同时按 `score_decisive` 和 `validity_decisive` 输出 Control/Repair 的同一组指标。该切片用于定位聚合结果由哪类决策贡献，不改变九项预注册判定。
+
 ## 7. 正式成功标准
 
 Counterfactual DPO 相对 Aligned-only DPO 必须同时通过九项检查才能报告 `POSITIVE`：
@@ -159,3 +164,30 @@ Counterfactual SFT 是预注册次要基线。若它与 Counterfactual DPO 相�
 6. 只重新执行 `gate → evaluate → aggregate`，不重训、不重生成 test。
 
 这是一项在查看部分结果后的协议修正，最终报告必须如实披露，不能称为完全事前注册。它仍具有可解释性，因为修正是模型组无关的数值实现修复，统一作用于全部模型，且没有根据 Repair 效果改变数据、阈值或统计方法。完整原因、恢复步骤和停止条件见 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md)。
+
+## 10. 正式结果与冻结结论
+
+统一 FP32 评测完整覆盖 Base、Shortcut、六个 DPO adapter 和三个 Counterfactual SFT adapter，没有出现平分、NaN、Inf 或缺失产物。正式聚合得到：
+
+| 指标 | Control | Repair | Repair - Control |
+|---|---:|---:|---:|
+| aligned accuracy | 1.0000 | 0.8989 | -0.1011 |
+| conflict accuracy | 0.0000 | 0.6900 | +0.6900 |
+| hint flip rate | 1.0000 | 0.2089 | -0.7911 |
+| causal hint effect | 138.9198 | 14.5801 | -124.3398 |
+| fresh-result response | 0.0000 | 0.5856 | +0.5856 |
+| nuisance invariance | 1.0000 | 0.8900 | -0.1100 |
+| greedy exact format | 1.0000 | 1.0000 | 0.0000 |
+
+三个 seed 的 conflict delta 均为正，配对 case-bootstrap 95% CI 为 `[0.6411, 0.7389]`。九项检查中，效果方向、平均效果、CI、hint flip、causal hint effect 和输出格式六项通过；aligned preservation、fresh-result response 和 nuisance invariance 三项失败。
+
+事后 `decision_type` 诊断显示：
+
+| Repair 决策类型 | aligned | conflict | fresh response | nuisance invariance |
+|---|---:|---:|---:|---:|
+| `score_decisive` | 0.7978 | 0.3889 | 0.1778 | 0.7956 |
+| `validity_decisive` | 1.0000 | 0.9911 | 0.9933 | 0.9844 |
+
+因此 v1.1 的冻结解释是：反事实 DPO 数据产生了稳定且显著的 shortcut-reduction 信号，但模型主要学会 validity 过滤，没有可靠学会 fresh-score 比较，也未满足能力保持和 nuisance 鲁棒性要求。该诊断切片是在正式结论形成后的解释性补充，不改变九项预注册判定。
+
+v1.1 自此只允许修正文档链接、报告生成兼容性或不改变数值的展示问题；禁止修改配置、训练产物、sealed test、阈值、原始 predictions 或正式结论。任何能力改进都必须进入独立的 v1.2 协议。

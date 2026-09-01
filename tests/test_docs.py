@@ -12,8 +12,9 @@ def test_readme_states_the_controlled_claim_and_current_result_status():
     assert "受控诱导" in text
     assert "不是新的 DPO" in text
     assert "无效评测" in text
-    assert "仍没有效果结论" in text
     assert "NEGATIVE / INCONCLUSIVE" in text
+    assert "正式评测已经完成" in text
+    assert "decision_type_metrics.csv" in text
 
 
 def test_runbook_contains_exact_install_and_every_manual_stage():
@@ -57,6 +58,8 @@ def test_protocol_freezes_hypothesis_metrics_and_success_checks():
     assert "paired case-bootstrap" in text
     assert "10 个百分点" in text
     assert "三个 seed" in text
+    assert "正式结论：`NEGATIVE / INCONCLUSIVE`" in text
+    assert "不改变九项预注册判定" in text
     config_sha = hashlib.sha256((ROOT / "configs/experiment.yaml").read_bytes()).hexdigest()
     assert config_sha in text
     checksum_file = (ROOT / "configs/experiment.sha256").read_text(encoding="utf-8")
@@ -92,3 +95,20 @@ def test_documented_commands_match_the_real_config_and_cli():
     assert "package_results.sh" in runbook
     assert "train-sft-baseline" in runbook
     assert "results/dev/base" in runbook
+
+
+def test_v1_2_documents_keep_the_project_small_and_the_runtime_flow_lightweight():
+    design = (ROOT / "docs/V1_2_DESIGN.md").read_text(encoding="utf-8")
+    plan = (ROOT / "docs/V1_2_EXECUTION_PLAN.md").read_text(encoding="utf-8")
+
+    for text in (design, plan):
+        assert "score_decisive" in text
+        assert "validity_decisive" in text
+        assert "fresh-result response" in text
+        assert "nuisance invariance" in text
+        assert "面试" in text
+
+    assert "不设置独立 smoke 阶段" in design
+    assert "不重复计算完整模型权重 SHA256" in design
+    assert "prepare → pilot → freeze → formal → report" in plan
+    assert "正式冻结时" in plan and "Git 工作树" in plan
