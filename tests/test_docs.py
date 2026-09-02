@@ -97,18 +97,10 @@ def test_documented_commands_match_the_real_config_and_cli():
     assert "results/dev/base" in runbook
 
 
-def test_v1_2_documents_keep_the_project_small_and_the_runtime_flow_lightweight():
-    design = (ROOT / "docs/V1_2_DESIGN.md").read_text(encoding="utf-8")
-    plan = (ROOT / "docs/V1_2_EXECUTION_PLAN.md").read_text(encoding="utf-8")
-
-    for text in (design, plan):
-        assert "score_decisive" in text
-        assert "validity_decisive" in text
-        assert "fresh-result response" in text
-        assert "nuisance invariance" in text
-        assert "面试" in text
-
-    assert "不设置独立 smoke 阶段" in design
-    assert "不重复计算完整模型权重 SHA256" in design
-    assert "prepare → pilot → freeze → formal → report" in plan
-    assert "正式冻结时" in plan and "Git 工作树" in plan
+def test_v1_1_branch_only_keeps_v1_1_results_and_documents():
+    assert not (ROOT / "ShortcutRepair-DPO-results").exists()
+    assert (ROOT / "ShortcutRepair-DPO-v1.1-evaluate-failure").is_dir()
+    assert (ROOT / "ShortcutRepair-DPO-v1.1-fp32-result").is_dir()
+    assert not (ROOT / "docs/V1_2_DESIGN.md").exists()
+    assert not (ROOT / "docs/V1_2_EXECUTION_PLAN.md").exists()
+    assert not (ROOT / "docs/superpowers").exists()

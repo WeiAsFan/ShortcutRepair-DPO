@@ -46,7 +46,9 @@ Counterfactual DPO 相对 Aligned-only DPO 将 conflict accuracy 从 0 提升到
 
 按 `decision_type` 的诊断进一步表明，Repair 在 `validity_decisive` 上接近完全正确，但在 `score_decisive` 上的 conflict accuracy 约为 0.389、fresh-result response 约为 0.178。正式分析工具现会把该切片写入 `results.json`、`decision_type_metrics.csv` 和 `RESULTS.md`；它用于解释结果，不追溯改变 v1.1 的九项判定。
 
-原始正式结果见 [ShortcutRepair-DPO-v1.1-fp32-result](ShortcutRepair-DPO-v1.1-fp32-result/results/reports/RESULTS.md)。v1.1 至此冻结，不再修改训练、数据、sealed test、阈值或正式结论；后续改进另立 v1.2。
+第一次 BF16 评测的无效运行证据保存在 `ShortcutRepair-DPO-v1.1-evaluate-failure/`；统一 FP32 正式结果见 [ShortcutRepair-DPO-v1.1-fp32-result](ShortcutRepair-DPO-v1.1-fp32-result/results/reports/RESULTS.md)。v1.1 至此冻结，不再修改训练、数据、sealed test、阈值或正式结论。
+
+为避免不同版本的证据相互混淆，v1.0 结果只保留在 `main`，v1.2 的设计、实现和结果只保留在 `codex/v1.2`；本分支不复制它们。
 
 ## 本地 CPU 验证
 
@@ -65,22 +67,20 @@ CPU 验证不加载模型，也不能替代 GPU 训练。
 
 ## A6000 执行
 
-v1.1 的服务器手册、完整复跑指南和 FP32 恢复指南均作为历史证据保留，不应再次执行。冻结口径和最终结论见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)。
-
-下一轮实验使用独立的 [v1.2 设计](docs/V1_2_DESIGN.md)和 [v1.2 执行计划](docs/V1_2_EXECUTION_PLAN.md)。v1.2 将复用已经确认的 Shortcut 起点，取消独立 smoke 阶段和重复全量哈希，把远程流程压缩为 `prepare → pilot → freeze → formal → report`。
+v1.1 的服务器手册、完整复跑指南和 FP32 恢复指南均作为历史证据保留，不应再次执行。冻结口径和最终结论见 [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md)，远程操作记录见 [docs/V1_1_REMOTE_EXECUTION_GUIDE.md](docs/V1_1_REMOTE_EXECUTION_GUIDE.md)，评测修正边界见 [docs/V1_1_EVALUATION_AMENDMENT.md](docs/V1_1_EVALUATION_AMENDMENT.md)。后续版本位于独立分支，不在本分支维护其文档。
 
 ## 目录
 
 ```text
-configs/experiment.yaml          # 唯一正式配置
+configs/experiment.yaml           # v1.1 冻结配置
 configs/evaluation_amendment.yaml # 冻结的纯评测协议增补
-src/shortcut_repair/data.py      # 确定性 oracle 与数据
-src/shortcut_repair/train.py     # SFT merge 与 LoRA-DPO
-src/shortcut_repair/evaluate.py  # A/B 条件概率与审计
-src/shortcut_repair/analysis.py  # 因果指标、bootstrap、报告
-src/shortcut_repair/cli.py       # 阶段命令
-scripts/                         # preflight、编排、脱敏打包
-tests/                           # CPU 合同测试
-docs/V1_2_DESIGN.md              # v1.2 研究设计与轻量实验边界
-docs/V1_2_EXECUTION_PLAN.md      # v1.2 分阶段实施计划
+src/shortcut_repair/              # v1.1 数据、训练、评测与分析实现
+scripts/                          # preflight、编排、脱敏打包
+tests/                            # CPU 合同测试
+docs/EXPERIMENT_PROTOCOL.md       # v1.1 冻结协议与正式结论
+docs/PROJECT_EXECUTION_PLAN.md    # v1.1 修复与优化执行记录
+docs/V1_1_EVALUATION_AMENDMENT.md # FP32 评测协议修正
+docs/V1_1_REMOTE_EXECUTION_GUIDE.md # v1.1 远程操作记录
+ShortcutRepair-DPO-v1.1-evaluate-failure/ # 无效 BF16 评测证据
+ShortcutRepair-DPO-v1.1-fp32-result/       # v1.1 正式结果
 ```

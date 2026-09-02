@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.1 远程修复与完整复跑指南
 
-> 状态：v1.1 已完成并冻结。本文及 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md) 均为历史运行记录，不再执行；后续实验使用 [V1_2_EXECUTION_PLAN.md](V1_2_EXECUTION_PLAN.md)。
+> 状态：v1.1 已完成并冻结。本文及 [V1_1_EVALUATION_AMENDMENT.md](V1_1_EVALUATION_AMENDMENT.md) 均为历史运行记录，不再执行；后续实验使用独立版本分支中的执行计划。
 
 本文用于以下实际场景：
 
@@ -222,7 +222,7 @@ if [[ -n "${SHORTCUT_ARCHIVE_DIR:-}" && -d "$SHORTCUT_ARCHIVE_DIR" ]]; then
 fi
 ```
 
-仓库中受 Git 跟踪的 `ShortcutRepair-DPO-results/` 是 v1.0 失败证据，不属于本次运行目录，不要移动或修改。
+v1.0 失败证据只保留在 `main`，不会复制到本分支；不要在 v1.1 运行目录中重新创建或移动该归档。
 
 ## 5. 训练服务器：检出 GitHub 修复分支
 
