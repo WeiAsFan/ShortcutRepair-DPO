@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.2 执行计划
 
-> - 状态：本地实现与 CPU 验证完成；以下服务器实验验收项尚未执行
+> - 状态：M1 prepare 与 M2 dev pilot 已完成；没有合格 DPO，按协议停止，M3–M5 未执行
 > - 日期：2026-09-02
 > - 设计依据：[V1_2_DESIGN.md](V1_2_DESIGN.md)
 > - 总流程：`prepare → pilot → freeze → formal → report`
@@ -17,7 +17,7 @@
 
 不以增加流程、manifest 或哈希数量作为完成度。
 
-代码入口为 `python -m shortcut_repair.v12`，薄脚本为 `scripts/run_v1_2.sh`。可以直接复制执行的远程操作见 [V1_2_REMOTE_EXECUTION_GUIDE.md](V1_2_REMOTE_EXECUTION_GUIDE.md)。本地模拟通过不代表真实 GPU 训练完成，更不代表已得到正结果。
+代码入口为 `python -m shortcut_repair.v12`，薄脚本为 `scripts/run_v1_2.sh`。远程操作记录见 [V1_2_REMOTE_EXECUTION_GUIDE.md](V1_2_REMOTE_EXECUTION_GUIDE.md)，实际 pilot 复盘见 [V1_2_PILOT_ANALYSIS.md](V1_2_PILOT_ANALYSIS.md)。本地模拟通过不代表真实 GPU 训练完成；当前真实 pilot 完成也不等于得到正式正结果。
 
 ## 2. 工作量上限
 
@@ -94,6 +94,8 @@ bash scripts/run_v1_2.sh prepare
 - Shortcut 在新 dev 上仍明显表现为 aligned 高、conflict 低和 hint 敏感；
 - 没有正式 test 文件。
 
+实际结果：以上三项均通过。Shortcut sanity 四项检查通过，train/dev 审计通过，且 prepare 后没有 test 文件。
+
 ## 5. M2：pilot
 
 仅使用 seed 42，按相同 dev 评测：
@@ -102,11 +104,11 @@ bash scripts/run_v1_2.sh prepare
 2. Score-aware SFT；
 3. Score-aware SFT → DPO。
 
-- [ ] 三个候选从同一 Shortcut checkpoint 开始；
-- [ ] 记录数据量、训练步数、运行时间和峰值显存；
-- [ ] 输出 overall 与 decision_type 指标；
-- [ ] 按设计文档中的最低条件和选择顺序选出候选；
-- [ ] 将选择理由写入简短的 `pilot_decision.md`。
+- [x] 三个候选从同一 Shortcut checkpoint 开始；
+- [x] 记录数据量、训练步数、运行时间和峰值显存；
+- [x] 输出 overall 与 decision_type 指标；
+- [x] 按设计文档中的最低条件和选择顺序执行候选择优；
+- [x] 将选择理由写入简短的 `pilot_decision.md`。
 
 如果三个候选全部不满足 aligned/validity/格式最低条件，只允许一次调整：
 
@@ -117,7 +119,9 @@ bash scripts/run_v1_2.sh prepare
 
 禁止同时修改数据、学习率、beta 和 epoch 后声称找到原因。
 
-验收：确定一个正式 DPO 路径，并能用一段话解释为什么选择它。
+预期验收：确定一个正式 DPO 路径，并能用一段话解释为什么选择它。
+
+实际结果：默认三条路径均未通过能力保持，脚本按冻结规则补跑两条半学习率路径；五条路径最终均为 `eligible=false`，`selected=null`。其中标准 SFT → DPO 只因精确格式率 0.9544 未达到 0.98 而失败。M2 未通过预期验收，并正确触发停止条件。
 
 ```bash
 bash scripts/run_v1_2.sh pilot
@@ -128,6 +132,8 @@ bash scripts/run_v1_2.sh pilot
 ## 6. M3：freeze
 
 Pilot 完成后才进入正式冻结。
+
+当前状态：未启动。M2 没有合格 DPO，因此不得执行本阶段；没有生成 test 或 freeze manifest。
 
 - [ ] 固定选中的训练路径和全部超参数；
 - [ ] 固定 train/dev 数据和新 test seed；
@@ -154,6 +160,8 @@ bash scripts/run_v1_2.sh freeze
 冻结后不再改源代码或配置；小文件身份检查由阶段入口自动完成。不要打开 test 做人工选型。
 
 ## 7. M4：formal
+
+当前状态：未启动，原因同 M3。
 
 按 seeds 42/43/44 执行：
 
@@ -188,6 +196,8 @@ bash scripts/run_v1_2.sh formal
 SFT 默认为 80 步，DPO 为 180 步。先完成六个训练阶段，再执行 14 个模型实例的统一 test 评测。发生中断时重跑相同命令，已完成项不会再次占用 GPU。
 
 ## 8. M5：report
+
+当前状态：未启动；现有 [pilot 分析](V1_2_PILOT_ANALYSIS.md)不属于正式 test 报告。
 
 - [ ] 聚合三个 seed；
 - [ ] 报告全部模型的 overall 和 decision_type 指标；

@@ -1,6 +1,6 @@
 # ShortcutRepair-DPO v1.2 设计
 
-> - 状态：代码已实现；本地 CPU 验证完成，服务器 pilot 与正式实验待执行
+> - 状态：代码与 CPU 验证完成；真实服务器 dev pilot 已完成但无合格 DPO，按协议停止，未生成 test 或执行正式实验
 > - 日期：2026-09-02
 > - 前置结果：v1.1 `NEGATIVE / INCONCLUSIVE`
 > - 项目边界：面试导向的小型受控后训练实验

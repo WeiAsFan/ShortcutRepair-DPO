@@ -1,3 +1,0 @@
-===== start=2026-08-31T10:15:33+08:00 stage=seal-test git=1ead3b24f00f33569128a6634401729e4908a62f =====
-{"audit":{"case_count":300,"case_id_unique_across_cases":true,"constant_A_accuracy":0.5,"constant_B_accuracy":0.5,"display_rank_only_accuracy":0.5,"fresh_score_only_accuracy":0.5,"gold_A_fraction":0.5,"historical_only_accuracy":0.5,"request_id_unique_across_cases":true,"score_decisive_fraction":0.5,"split_marker_count":0,"validity_decisive_fraction":0.5},"config_sha256":"56da1d3c5f8df8512ea72e458e03755e854cf78abc533c02c3b86b4d28e85ca6","files":{"test.jsonl":{"rows":1800,"sha256":"22dcd320143f2070e1e5cc928f84a83692f6636d55303b95fc63d5c490c76e42"}},"generator_version":"shortcut-repair-v2","sealed":true}
-===== end=2026-08-31T10:15:33+08:00 stage=seal-test exit=0 =====

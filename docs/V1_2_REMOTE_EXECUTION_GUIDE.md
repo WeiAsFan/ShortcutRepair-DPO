@@ -1,6 +1,8 @@
 # v1.2 远程执行指南
 
-本指南用于从另一台 Linux 客户端经 SSH 登录原 GPU 服务器，运行 `codex/v1.2`。本机仅完成了代码和 CPU 验证，尚未产生真实 v1.2 实验结果。
+本指南用于从另一台 Linux 客户端经 SSH 登录原 GPU 服务器，运行 `codex/v1.2`。
+
+> 当前状态：真实 `prepare → pilot` 已完成；pilot decision 为 `selected=null`。已触发预注册停止条件，不要执行 `freeze`、`formal` 或 `report`。下文后续阶段仅保留为冻结协议说明，不是当前待执行命令。
 
 只执行五个阶段：`prepare → pilot → freeze → formal → report`。不重新运行 v1.1 的诱导、gate 链、smoke 或全量哈希脚本。
 
@@ -42,7 +44,7 @@ runs/dpo/{control,repair}/seed-{42,43,44}/final_adapter/
 runs/dpo/{control,repair}/seed-{42,43,44}/run_manifest.json
 ```
 
-GitHub 上传的 `ShortcutRepair-DPO-v1.1-fp32-result` 只有运行证据，不能代替这些真实权重。若服务器使用其他路径，只修改 `configs/v1_2.yaml` 中对应的路径并在启动 pilot 前提交；不要修改 v1.1 配置。正式冻结前保持使用同一提交，冻结后不切分支、不改代码或配置。
+v1.1 分支公开的结果归档只有运行证据，不能代替这些真实权重。若服务器使用其他路径，只修改 `configs/v1_2.yaml` 中对应的路径并在启动 pilot 前提交；不要修改兼容配置。正式冻结前保持使用同一提交，冻结后不切分支、不改代码或配置。
 
 正式结果完成后，可以提交文档或上传结果。只追加这些文件不会让冻结记录失效；恢复或重新生成报告仍检查实验源代码与冻结版本一致，不因无关的 HEAD 变化重训。
 
