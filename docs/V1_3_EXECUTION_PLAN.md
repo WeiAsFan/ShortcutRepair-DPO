@@ -1,13 +1,14 @@
 # ShortcutRepair-DPO v1.3 实现与执行计划
 
-> - 状态：本地实现完成并通过 CPU 合同测试，等待真实 GPU pilot
+> - 状态：全部阶段完成，正式结论已冻结为 `POSITIVE`
 > - 日期：2026-09-03
 > - 设计依据：[V1_3_DESIGN.md](V1_3_DESIGN.md)
+> - 结果分析：[V1_3_RESULT_ANALYSIS.md](V1_3_RESULT_ANALYSIS.md)
 > - 流程：`prepare → pilot → freeze → formal → report`
 
 ## 1. 完成定义
 
-v1.3 的实现完成不等于真实 pilot 已通过。代码阶段必须做到：
+本计划将代码完成与真实实验通过区分开；两者目前均已完成。代码阶段必须做到：
 
 本计划遵守面试导向的小型项目边界，只实现回答研究问题所需的最小训练、判定和报告链。
 
@@ -18,7 +19,7 @@ v1.3 的实现完成不等于真实 pilot 已通过。代码阶段必须做到�
 - pilot 通过后能运行三 seed 完整链、sealed test 和正式报告；
 - CPU 合同测试与 Ruff 全部通过。
 
-真实 GPU pilot 是否通过，只能由服务器运行结果决定；不得用模拟测试宣称模型效果已经实现。
+真实 GPU pilot 已由服务器结果确认通过；该结论来自运行产物，不来自 CPU 模拟测试。
 
 ## 2. M0：版本隔离与文档
 
@@ -64,7 +65,7 @@ v1.3 的实现完成不等于真实 pilot 已通过。代码阶段必须做到�
 
 验收：模拟正例得到 `selected=sft_dpo_anchor`；格式未改善或核心指标回退的模拟负例均得到 `selected=null`，且没有 test。
 
-服务器命令：
+实际执行命令（已完成）：
 
 ```bash
 bash scripts/run_v1_3.sh prepare
@@ -84,7 +85,7 @@ bash scripts/run_v1_3.sh pilot
 
 验收：test 被篡改、源 adapter 不匹配或任一训练未完成时，在报告前失败。
 
-服务器命令：
+实际执行命令（已完成）：
 
 ```bash
 bash scripts/run_v1_3.sh freeze
@@ -99,7 +100,7 @@ bash scripts/run_v1_3.sh formal
 - [x] 生成 `RESULTS.md`、`results.json`、`metrics.csv`、`costs.csv` 和一张对比图；
 - [x] 结果包只包含配置、短 manifest、指标和 predictions，不包含权重。
 
-服务器命令：
+实际执行命令（已完成）：
 
 ```bash
 bash scripts/run_v1_3.sh report
@@ -114,3 +115,14 @@ bash scripts/run_v1_3.sh report
 - [x] 提交并推送 `codex/v1.3`。
 
 实现阶段不新增独立 smoke、全量模型权重哈希、人工九步恢复脚本或与问题无关的工程功能。
+
+## 9. M7：真实实验完成记录
+
+- [x] Pilot 八项检查全部通过，`selected=sft_dpo_anchor`；
+- [x] Pilot 通过后才生成 seed 13023 的 sealed test；
+- [x] 三 seed 共九个正式训练阶段全部完成；
+- [x] 正式五项检查全部通过，结论为 `POSITIVE`；
+- [x] 独立复算 predictions、metrics、聚合结果、运行 manifest 和结果归档；
+- [x] 更新 README、设计状态和 [v1.3 结果分析](V1_3_RESULT_ANALYSIS.md)。
+
+项目主实验至此冻结。不得根据已经查看的 sealed test 继续调整 v1.3 模型或阈值。

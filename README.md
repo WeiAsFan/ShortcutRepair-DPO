@@ -6,83 +6,90 @@ Qwen2.5-1.5B-Instruct 依赖可能过期的 `cached_recommendation`，再用反�
 
 项目不提出新的 DPO 损失，也不把合成二选一任务外推为通用工具调用能力。它的价值在于展示：
 如何定义 shortcut、构造可证伪的数据干预、组合 SFT 与 DPO、定位训练目标和真实生成行为之间的
-偏差，并用最小实验修正它。
+错位，并用最小实验修正它。
 
-## v1.3 研究问题
+## 研究问题与方法
 
 v1.2 的 `SFT → DPO` 已在 dev 上学会 fresh-score、validity 和 nuisance 不变性，但开放词表
-贪心生成的严格 A/B 格式率只有 0.9544：1,536 条中有 70 条生成 `.getBcd` 等额外字符串，
-因此按协议得到 `selected=null`，没有生成 test。
-
-v1.3 只回答：
+贪心生成的严格 A/B 格式率只有 0.9544。v1.3 因而只回答：
 
 > 能否在保留已学规则能力的同时，用一次低学习率 SFT continuation，让同一 DPO policy
 > 恢复严格的 A/B+EOS 动作合同？
 
-## 固定方法
+固定修正是：以 `is_trainable=True` 在原 DPO LoRA adapter 上继续训练，不创建第三个 adapter；anchor 数据与原 SFT
+数据相同，learning rate 为 `2e-6`，训练 1 epoch、80 optimizer steps。评测保持四 token、
+开放词表 greedy generation，不缩短生成长度，也不用约束解码代替模型修复。
 
-- 逐字节复用 v1.2 的 train/dev、Score-aware SFT merged 模型和 seed-42 DPO adapter；
-- 在原 DPO adapter 上以 `is_trainable=True` 继续训练，不创建第三个 LoRA；
-- anchor 数据与原 SFT 数据相同，固定 learning rate `2e-6`、1 epoch、80 optimizer steps；
-- 保持四 token、开放词表 greedy generation；不把 `max_new_tokens` 缩为 1，也不用约束解码代替模型修复；
-- pilot 只运行一个候选、一个 seed，不搜索超参数；
-- 只有八项检查全部通过，才生成新 seed `13023` 的 sealed test。
-
-完整假设、阈值与可证伪结论见 [v1.3 设计文档](docs/V1_3_DESIGN.md)，实现里程碑见
+完整的预注册假设、阈值与停止条件见 [v1.3 设计文档](docs/V1_3_DESIGN.md)，实现过程见
 [v1.3 执行计划](docs/V1_3_EXECUTION_PLAN.md)。
 
-## 当前状态
+## 当前结果：正式实验通过
 
-v1.3 的代码与 CPU 合同测试已经实现，尚未在服务器上运行真实 GPU pilot。CPU 模拟仅证明：
+v1.3 已完成真实 GPU pilot、三 seed 正式训练和 sealed test。Pilot 八项检查与正式五项检查
+全部通过，正式结论为 `POSITIVE`。
 
-- 配置、数据哈希和 v1.2 权重来源会被核对；
-- anchor 确实继续训练原 LoRA，且预算固定；
-- 格式改善且核心能力保持时得到 `selected=sft_dpo_anchor`；
-- 格式未改善或能力回退时得到 `selected=null`，并且不会创建 `test.jsonl`；
-- pilot 通过后，正式流程会先完成三 seed 的九个训练阶段，再开始 17 次 test 评测。
+| 模型 | overall aligned | score conflict | score fresh | validity conflict | score nuisance | 严格格式 |
+|---|---:|---:|---:|---:|---:|---:|
+| v1.1 Repair | 0.8979 | 0.3937 | 0.1896 | 0.9938 | 0.7833 | 1.0000 |
+| Score-aware SFT | 1.0000 | 0.0000 | 0.0000 | 0.3375 | 1.0000 | 1.0000 |
+| SFT → DPO（锚定前） | 1.0000 | 1.0000 | 0.9958 | 1.0000 | 0.9979 | 0.9646 |
+| SFT → DPO → Anchor | 0.9990 | 0.9979 | 0.9896 | 1.0000 | 0.9917 | 1.0000 |
 
-这不代表真实 pilot 已通过。下一步必须在原 Linux 训练设备上复用 v1.2 权重，实际运行
-`prepare → pilot`；只有 `reports/v1.3/pilot_decision.json` 中的 `selected` 为
-`sft_dpo_anchor`，才可继续 `freeze → formal → report`。
+最关键的结果不是单一最高分，而是分阶段对照形成的证据链：
 
-## 远程运行
+- Score-aware SFT 能保持严格格式，但不能在 conflict 条件下摆脱 hint；
+- DPO 学会了 fresh-score 与 validity 规则，却产生了开放词表格式错误；
+- Format anchor 将三 seed 共 204 条非法格式降为 0，并把格式率从 0.9646 提升到 1.0000；
+- 代价是 score fresh、score nuisance 等指标下降约 0.2–0.6 个百分点，因此这是近似无损而非零代价修复。
+
+最终三 seed 的 5,760 条生成全部是严格 A/B，其中 11 条答案错误。相对 v1.1 Repair，score fresh
+平均提高 `0.8000`，配对 case-bootstrap 95% CI 为 `[0.7500, 0.8479]`，三个 seed 均为正提升。
+
+完整结果、逐 seed 分析和审计结论见 [v1.3 结果分析](docs/V1_3_RESULT_ANALYSIS.md)与
+[自动生成的正式报告](reports/v1.3/RESULTS.md)。
+
+## 结论边界
+
+本实验支持以下有限结论：在当前受控二选一任务中，SFT → DPO 建立了 fresh-result 条件偏好，
+一次冻结的低学习率 SFT continuation 恢复了开放词表 A/B+EOS 动作合同，并在三 seed sealed
+test 上保留了核心能力。
+
+本实验不能证明：
+
+- 提出了新的 DPO 算法；
+- 获得了通用数值推理或开放域工具调用能力；
+- 格式锚定完全没有能力代价；
+- 三个训练 seed 足以刻画全部训练随机性。
+
+项目主实验现已冻结。不得根据 sealed test 继续调参或训练 v1.3；如补充分布外测试，应使用冻结
+checkpoint，并明确标记为 post-hoc exploratory appendix。
+
+## 验证与结果入口
+
+本地 CPU 检查不会加载模型，也不能替代真实 GPU 结果，但可以验证代码合同：
 
 ```bash
-git fetch origin
-git switch codex/v1.3
 python -m pip install -r requirements-dev.txt
 python -m pip install -e .
-
 python -m pytest -q
 python -m ruff check src tests
-
-bash scripts/run_v1_3.sh prepare
-bash scripts/run_v1_3.sh pilot
 ```
 
-检查 `reports/v1.3/pilot_decision.md`。若 `selected=null`，立即停止，不得执行 freeze。
-若 pilot 通过：
-
-```bash
-bash scripts/run_v1_3.sh freeze
-bash scripts/run_v1_3.sh formal
-bash scripts/run_v1_3.sh report
-```
-
-每个阶段都可安全重跑：身份相同且已完成的训练/评测会复用，身份不一致则停止而不是覆盖。
-
-## 目录
+主要结果文件：
 
 ```text
-configs/v1_3.yaml                   # v1.3 冻结配置与 v1.2 来源哈希
-src/shortcut_repair/v13.py          # prepare/pilot/freeze/formal/report 入口
-src/shortcut_repair/v13_data.py     # 复用数据、anchor 和新 sealed test
-src/shortcut_repair/v13_runtime.py  # 原 LoRA 上的 format-anchor SFT
-src/shortcut_repair/v13_analysis.py # 八项 pilot 检查与锚定前后对照
-scripts/run_v1_3.sh                 # Linux 五阶段入口
-tests/test_v13_*.py                 # 不加载真实模型的 CPU 合同测试
-docs/V1_3_DESIGN.md                 # 冻结研究设计
-docs/V1_3_EXECUTION_PLAN.md         # 实现与服务器执行计划
+reports/v1.3/pilot_decision.md       # Pilot 八项检查
+reports/v1.3/RESULTS.md              # 正式结论和主指标
+reports/v1.3/results.json            # 完整聚合结果
+reports/v1.3/metrics.csv             # 模型、切片和逐 seed 指标
+reports/v1.3/costs.csv               # 训练成本
+artifacts/v1.3/                      # 不含模型权重的可审计结果包
+```
+
+结果包 `shortcut-repair-v1.3-0b36bf2f10a4.tar.gz` 的 SHA256 为：
+
+```text
+2918f007315323623fa941b10ba6d9da5065141e174c88293a042bd363742b82
 ```
 
 历史版本的结果与说明分别保留在其远端分支；v1.3 只保留当前版本文档。底层 v1.0–v1.2

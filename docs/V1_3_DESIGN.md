@@ -1,10 +1,11 @@
 # ShortcutRepair-DPO v1.3 设计
 
-> - 状态：设计冻结，尚未运行真实 GPU pilot
+> - 状态：设计冻结，真实 GPU pilot 与正式实验已完成，结论为 `POSITIVE`
 > - 日期：2026-09-03
 > - 基线：v1.2 dev pilot，运行提交 `7047d067bf464e1ffbb4896a7f27103471bdec3b`
 > - 项目边界：面试导向的小型受控后训练实验
 > - 执行流程：`prepare → pilot → freeze → formal → report`
+> - 结果分析：[V1_3_RESULT_ANALYSIS.md](V1_3_RESULT_ANALYSIS.md)
 
 ## 1. 研究问题
 

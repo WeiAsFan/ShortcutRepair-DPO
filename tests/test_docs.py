@@ -16,14 +16,17 @@ def test_readme_states_v13_claim_protocol_and_real_gpu_boundary():
         "is_trainable=True",
         "2e-6",
         "开放词表",
-        "selected=null",
-        "没有生成 test",
-        "真实 GPU pilot",
+        "POSITIVE",
+        "sealed test",
+        "三 seed",
+        "204 条非法格式",
+        "11 条答案错误",
     ):
         assert phrase in text
-    assert "不得执行 freeze" in text
+    assert "不得根据 sealed test 继续调参" in text
     assert "V1_3_DESIGN.md" in text
     assert "V1_3_EXECUTION_PLAN.md" in text
+    assert "V1_3_RESULT_ANALYSIS.md" in text
 
 
 def test_v13_documents_freeze_one_small_falsifiable_change():
@@ -47,10 +50,33 @@ def test_v13_documents_freeze_one_small_falsifiable_change():
 
 
 def test_v13_branch_only_keeps_v13_documents_and_no_previous_result_archives():
-    expected_docs = {"V1_3_DESIGN.md", "V1_3_EXECUTION_PLAN.md"}
+    expected_docs = {
+        "V1_3_DESIGN.md",
+        "V1_3_EXECUTION_PLAN.md",
+        "V1_3_RESULT_ANALYSIS.md",
+    }
     assert {path.name for path in (ROOT / "docs").glob("*.md")} == expected_docs
     assert not (ROOT / "artifacts/v1.2").exists()
     assert not (ROOT / "ShortcutRepair-DPO-results").exists()
+
+
+def test_v13_result_analysis_records_success_tradeoff_and_claim_boundary():
+    text = (ROOT / "docs/V1_3_RESULT_ANALYSIS.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "0.9646",
+        "1.0000",
+        "204 条非法格式",
+        "11 条答案错误",
+        "0.8000",
+        "[0.7500, 0.8479]",
+        "三个 seed",
+        "post-hoc exploratory",
+        "不建议启动 v1.4",
+    ):
+        assert phrase in text
+    assert "零代价修复" in text
+    assert "不得根据已查看的 sealed test 继续训练或调参" in text
 
 
 def test_v13_config_keeps_published_v12_data_hashes():
