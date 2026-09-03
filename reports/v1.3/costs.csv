@@ -1,0 +1,11 @@
+phase,candidate,seed,rows,actual_optimizer_steps,training_runtime_seconds,peak_gpu_memory_bytes,learning_rate,attempts,runtime_is_lower_bound
+formal,score_sft,42,2560,80,299.1876589709427,5142819840,1e-05,1,False
+formal,score_sft,43,2560,80,288.6902753440663,5142819840,1e-05,1,False
+formal,score_sft,44,2560,80,287.55041737889405,5142819840,1e-05,1,False
+formal,sft_dpo,42,1920,180,841.2287937569199,7222939136,1e-05,1,False
+formal,sft_dpo,43,1920,180,796.4100139209768,7222939136,1e-05,1,False
+formal,sft_dpo,44,1920,180,831.4820323230233,7222939136,1e-05,1,False
+formal,sft_dpo_anchor,42,2560,80,294.8000827479409,5142819840,2e-06,1,False
+formal,sft_dpo_anchor,43,2560,80,296.13509625406004,5142819840,2e-06,1,False
+formal,sft_dpo_anchor,44,2560,80,296.21408795996103,5142819840,2e-06,1,False
+pilot,sft_dpo_anchor,42,2560,80,323.38176677701995,5143208960,2e-06,1,False

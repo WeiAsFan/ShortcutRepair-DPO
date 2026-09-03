@@ -1,0 +1,49 @@
+{
+  "actual_epoch": 3.0,
+  "actual_optimizer_steps": 180,
+  "attempts": 1,
+  "effective_batch_size": 32,
+  "final_adapter": "runs/v1.3/formal/sft_dpo/seed-44/final_adapter",
+  "identity": {
+    "candidate": "sft_dpo",
+    "config_sha256": "719ebfb8f48ca3a8be5bc46934d788af13bc52158fa19fad8fa282907c56230b",
+    "data_sha256": "cc29ff24ed17399209c743272f97bac19f1476c4854d616690f483f028235325",
+    "git_sha": "0b36bf2f10a4dede3d0e02376e630bb4aa8abd63",
+    "parent_manifest_sha256": "634a9b4e9ae27621faab3645450893425ca9339bce158647e15d8e9f6116c4f4",
+    "phase": "formal",
+    "spec": {
+      "effective_batch_size": 32,
+      "optimizer_steps": 180,
+      "params": {
+        "beta": 0.1,
+        "epochs": 3,
+        "learning_rate": 1e-05,
+        "loss_type": "sigmoid"
+      },
+      "reference_policy": "starting_model_with_new_adapter_disabled",
+      "rows": 1920,
+      "seed": 44,
+      "stage": "dpo"
+    },
+    "starting_model": "runs/v1.3/formal/score_sft/seed-44/merged"
+  },
+  "merged_model": null,
+  "optimizer_steps": 180,
+  "params": {
+    "beta": 0.1,
+    "epochs": 3,
+    "learning_rate": 1e-05,
+    "loss_type": "sigmoid"
+  },
+  "peak_gpu_memory_bytes": 7222939136,
+  "reference_policy": "starting_model_with_new_adapter_disabled",
+  "resume_from_checkpoint": null,
+  "rows": 1920,
+  "runtime_is_lower_bound": false,
+  "seed": 44,
+  "stage": "dpo",
+  "starting_model": "runs/v1.3/formal/score_sft/seed-44/merged",
+  "status": "complete",
+  "training_loss": 2.6422880404525335,
+  "training_runtime_seconds": 831.4820323230233
+}

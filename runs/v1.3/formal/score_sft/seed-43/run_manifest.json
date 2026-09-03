@@ -1,0 +1,45 @@
+{
+  "actual_epoch": 1.0,
+  "actual_optimizer_steps": 80,
+  "attempts": 1,
+  "effective_batch_size": 32,
+  "final_adapter": "runs/v1.3/formal/score_sft/seed-43/final_adapter",
+  "identity": {
+    "candidate": "score_sft",
+    "config_sha256": "719ebfb8f48ca3a8be5bc46934d788af13bc52158fa19fad8fa282907c56230b",
+    "data_sha256": "52cf8f7f52df4961cea82df3c4c26b650f879219b4f586a7b383f4cb509ce7c3",
+    "git_sha": "0b36bf2f10a4dede3d0e02376e630bb4aa8abd63",
+    "parent_manifest_sha256": "0827a815058091f00e61e0decd840bed2e90e3dd316cefa500cbd0804415bbc5",
+    "phase": "formal",
+    "spec": {
+      "effective_batch_size": 32,
+      "optimizer_steps": 80,
+      "params": {
+        "epochs": 1,
+        "learning_rate": 1e-05
+      },
+      "reference_policy": null,
+      "rows": 2560,
+      "seed": 43,
+      "stage": "sft"
+    },
+    "starting_model": "runs/shortcut/merged"
+  },
+  "merged_model": "runs/v1.3/formal/score_sft/seed-43/merged",
+  "optimizer_steps": 80,
+  "params": {
+    "epochs": 1,
+    "learning_rate": 1e-05
+  },
+  "peak_gpu_memory_bytes": 5142819840,
+  "reference_policy": null,
+  "resume_from_checkpoint": null,
+  "rows": 2560,
+  "runtime_is_lower_bound": false,
+  "seed": 43,
+  "stage": "sft",
+  "starting_model": "runs/shortcut/merged",
+  "status": "complete",
+  "training_loss": 0.9561747461557388,
+  "training_runtime_seconds": 288.6902753440663
+}

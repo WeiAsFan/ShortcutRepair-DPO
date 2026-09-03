@@ -1,0 +1,47 @@
+{
+  "actual_epoch": 1.0,
+  "actual_optimizer_steps": 80,
+  "attempts": 1,
+  "continued_adapter": true,
+  "effective_batch_size": 32,
+  "final_adapter": "runs/v1.3/formal/sft_dpo_anchor/seed-44/final_adapter",
+  "identity": {
+    "candidate": "sft_dpo_anchor",
+    "config_sha256": "719ebfb8f48ca3a8be5bc46934d788af13bc52158fa19fad8fa282907c56230b",
+    "data_sha256": "52cf8f7f52df4961cea82df3c4c26b650f879219b4f586a7b383f4cb509ce7c3",
+    "git_sha": "0b36bf2f10a4dede3d0e02376e630bb4aa8abd63",
+    "phase": "formal",
+    "source_dpo_manifest_sha256": "f521e7d598f48f337ffa784df7717d75fa47c4c6cdc18977250b9f3873d1e4a8",
+    "source_sft_manifest_sha256": "634a9b4e9ae27621faab3645450893425ca9339bce158647e15d8e9f6116c4f4",
+    "spec": {
+      "continued_adapter": true,
+      "effective_batch_size": 32,
+      "optimizer_steps": 80,
+      "params": {
+        "epochs": 1,
+        "learning_rate": 2e-06
+      },
+      "rows": 2560,
+      "seed": 44,
+      "stage": "anchor"
+    },
+    "starting_adapter": "runs/v1.3/formal/sft_dpo/seed-44/final_adapter",
+    "starting_model": "runs/v1.3/formal/score_sft/seed-44/merged"
+  },
+  "optimizer_steps": 80,
+  "params": {
+    "epochs": 1,
+    "learning_rate": 2e-06
+  },
+  "peak_gpu_memory_bytes": 5142819840,
+  "resume_from_checkpoint": null,
+  "rows": 2560,
+  "runtime_is_lower_bound": false,
+  "seed": 44,
+  "stage": "anchor",
+  "starting_adapter": "runs/v1.3/formal/sft_dpo/seed-44/final_adapter",
+  "starting_model": "runs/v1.3/formal/score_sft/seed-44/merged",
+  "status": "complete",
+  "training_loss": 0.0019212524173781275,
+  "training_runtime_seconds": 296.21408795996103
+}

@@ -1,0 +1,61 @@
+{
+  "decision_type": {
+    "score_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 1.5323651704005896,
+      "case_count": 160,
+      "causal_hint_effect": 2.5631586940959097,
+      "conflict_accuracy": 0.0,
+      "conflict_correct_margin": -1.0307935236953198,
+      "fresh_flip_rate": 0.0,
+      "fresh_result_response_rate": 0.0,
+      "greedy_accuracy": 0.3333333333333333,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 1.0,
+      "hint_follow_rate": 1.0,
+      "nuisance_invariance_rate": 1.0,
+      "nuisance_pair_both_accuracy": 0.0,
+      "overall_accuracy": 0.5,
+      "pair_both_accuracy": 0.0,
+      "row_count": 960
+    },
+    "validity_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 1.621990635059774,
+      "case_count": 160,
+      "causal_hint_effect": 2.284114670800045,
+      "conflict_accuracy": 0.41875,
+      "conflict_correct_margin": -0.6621240357402712,
+      "fresh_flip_rate": 0.40625,
+      "fresh_result_response_rate": 0.40625,
+      "greedy_accuracy": 0.6125,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 0.58125,
+      "hint_follow_rate": 0.790625,
+      "nuisance_invariance_rate": 0.85,
+      "nuisance_pair_both_accuracy": 0.35,
+      "overall_accuracy": 0.709375,
+      "pair_both_accuracy": 0.41875,
+      "row_count": 960
+    }
+  },
+  "overall": {
+    "aligned_accuracy": 1.0,
+    "aligned_correct_margin": 1.5771779027301818,
+    "case_count": 320,
+    "causal_hint_effect": 2.4236366824479774,
+    "conflict_accuracy": 0.209375,
+    "conflict_correct_margin": -0.8464587797177956,
+    "fresh_flip_rate": 0.203125,
+    "fresh_result_response_rate": 0.203125,
+    "greedy_accuracy": 0.47291666666666665,
+    "greedy_exact_format_rate": 1.0,
+    "hint_flip_rate": 0.790625,
+    "hint_follow_rate": 0.8953125,
+    "nuisance_invariance_rate": 0.925,
+    "nuisance_pair_both_accuracy": 0.175,
+    "overall_accuracy": 0.6046875,
+    "pair_both_accuracy": 0.209375,
+    "row_count": 1920
+  }
+}

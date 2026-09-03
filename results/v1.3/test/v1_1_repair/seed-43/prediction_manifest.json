@@ -1,0 +1,18 @@
+{
+  "identity": {
+    "adapter": "runs/dpo/repair/seed-43/final_adapter",
+    "allow_tf32": false,
+    "config_sha256": "719ebfb8f48ca3a8be5bc46934d788af13bc52158fa19fad8fa282907c56230b",
+    "data_sha256": "36901f0ad9c39e3d7fb4862a862fd505433297462b8cbc90a05e37392ca41dd2",
+    "git_sha": "0b36bf2f10a4dede3d0e02376e630bb4aa8abd63",
+    "model": "v1_1_repair",
+    "model_dtype": "float32",
+    "seed": 43,
+    "source": "runs/shortcut/merged",
+    "source_manifest_sha256": "b0f391879f1c68d166fdb5cfdbf8ac8e52bd3cbbb0ec951da83235807af6b89c",
+    "split": "test",
+    "tie_policy": "reject_with_context"
+  },
+  "prediction_rows": 1920,
+  "status": "complete"
+}

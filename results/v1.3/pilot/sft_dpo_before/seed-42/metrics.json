@@ -1,0 +1,61 @@
+{
+  "decision_type": {
+    "score_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 38.4030478286806,
+      "case_count": 128,
+      "causal_hint_effect": 0.0024970945945597123,
+      "conflict_accuracy": 1.0,
+      "conflict_correct_margin": 38.40055073408604,
+      "fresh_flip_rate": 0.984375,
+      "fresh_result_response_rate": 0.984375,
+      "greedy_accuracy": 0.9348958333333334,
+      "greedy_exact_format_rate": 0.9375,
+      "hint_flip_rate": 0.0,
+      "hint_follow_rate": 0.5,
+      "nuisance_invariance_rate": 1.0,
+      "nuisance_pair_both_accuracy": 1.0,
+      "overall_accuracy": 1.0,
+      "pair_both_accuracy": 1.0,
+      "row_count": 768
+    },
+    "validity_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 37.51414761598414,
+      "case_count": 128,
+      "causal_hint_effect": 0.060393089741296535,
+      "conflict_accuracy": 1.0,
+      "conflict_correct_margin": 37.45375452624285,
+      "fresh_flip_rate": 1.0,
+      "fresh_result_response_rate": 1.0,
+      "greedy_accuracy": 0.9713541666666666,
+      "greedy_exact_format_rate": 0.9713541666666666,
+      "hint_flip_rate": 0.0,
+      "hint_follow_rate": 0.5,
+      "nuisance_invariance_rate": 1.0,
+      "nuisance_pair_both_accuracy": 1.0,
+      "overall_accuracy": 1.0,
+      "pair_both_accuracy": 1.0,
+      "row_count": 768
+    }
+  },
+  "overall": {
+    "aligned_accuracy": 1.0,
+    "aligned_correct_margin": 37.95859772233237,
+    "case_count": 256,
+    "causal_hint_effect": 0.031445092167928124,
+    "conflict_accuracy": 1.0,
+    "conflict_correct_margin": 37.92715263016444,
+    "fresh_flip_rate": 0.9921875,
+    "fresh_result_response_rate": 0.9921875,
+    "greedy_accuracy": 0.953125,
+    "greedy_exact_format_rate": 0.9544270833333334,
+    "hint_flip_rate": 0.0,
+    "hint_follow_rate": 0.5,
+    "nuisance_invariance_rate": 1.0,
+    "nuisance_pair_both_accuracy": 1.0,
+    "overall_accuracy": 1.0,
+    "pair_both_accuracy": 1.0,
+    "row_count": 1536
+  }
+}

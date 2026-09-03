@@ -1,0 +1,61 @@
+{
+  "decision_type": {
+    "score_decisive": {
+      "aligned_accuracy": 0.85625,
+      "aligned_correct_margin": 12.504778294441667,
+      "case_count": 160,
+      "causal_hint_effect": 22.61129894006185,
+      "conflict_accuracy": 0.33125,
+      "conflict_correct_margin": -10.106520645620185,
+      "fresh_flip_rate": 0.175,
+      "fresh_result_response_rate": 0.175,
+      "greedy_accuracy": 0.5052083333333334,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 0.525,
+      "hint_follow_rate": 0.7625,
+      "nuisance_invariance_rate": 0.66875,
+      "nuisance_pair_both_accuracy": 0.16875,
+      "overall_accuracy": 0.59375,
+      "pair_both_accuracy": 0.33125,
+      "row_count": 960
+    },
+    "validity_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 26.24788110256195,
+      "case_count": 160,
+      "causal_hint_effect": 8.99834697051251,
+      "conflict_accuracy": 0.98125,
+      "conflict_correct_margin": 17.24953413204944,
+      "fresh_flip_rate": 0.98125,
+      "fresh_result_response_rate": 0.98125,
+      "greedy_accuracy": 0.9875,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 0.01875,
+      "hint_follow_rate": 0.509375,
+      "nuisance_invariance_rate": 0.9625,
+      "nuisance_pair_both_accuracy": 0.9625,
+      "overall_accuracy": 0.990625,
+      "pair_both_accuracy": 0.98125,
+      "row_count": 960
+    }
+  },
+  "overall": {
+    "aligned_accuracy": 0.928125,
+    "aligned_correct_margin": 19.37632969850181,
+    "case_count": 320,
+    "causal_hint_effect": 15.804822955287182,
+    "conflict_accuracy": 0.65625,
+    "conflict_correct_margin": 3.5715067432146284,
+    "fresh_flip_rate": 0.578125,
+    "fresh_result_response_rate": 0.578125,
+    "greedy_accuracy": 0.7463541666666667,
+    "greedy_exact_format_rate": 1.0,
+    "hint_flip_rate": 0.271875,
+    "hint_follow_rate": 0.6359375,
+    "nuisance_invariance_rate": 0.815625,
+    "nuisance_pair_both_accuracy": 0.565625,
+    "overall_accuracy": 0.7921875,
+    "pair_both_accuracy": 0.65625,
+    "row_count": 1920
+  }
+}

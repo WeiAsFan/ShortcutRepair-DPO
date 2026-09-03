@@ -1,0 +1,61 @@
+{
+  "decision_type": {
+    "score_decisive": {
+      "aligned_accuracy": 0.7,
+      "aligned_correct_margin": 10.012272289978501,
+      "case_count": 160,
+      "causal_hint_effect": 18.32403123334607,
+      "conflict_accuracy": 0.4875,
+      "conflict_correct_margin": -8.311758943367568,
+      "fresh_flip_rate": 0.19375,
+      "fresh_result_response_rate": 0.19375,
+      "greedy_accuracy": 0.55625,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 0.2125,
+      "hint_follow_rate": 0.60625,
+      "nuisance_invariance_rate": 0.95625,
+      "nuisance_pair_both_accuracy": 0.45625,
+      "overall_accuracy": 0.59375,
+      "pair_both_accuracy": 0.4875,
+      "row_count": 960
+    },
+    "validity_decisive": {
+      "aligned_accuracy": 1.0,
+      "aligned_correct_margin": 25.172282135486604,
+      "case_count": 160,
+      "causal_hint_effect": 7.208539206425845,
+      "conflict_accuracy": 1.0,
+      "conflict_correct_margin": 17.963742929060757,
+      "fresh_flip_rate": 1.0,
+      "fresh_result_response_rate": 1.0,
+      "greedy_accuracy": 1.0,
+      "greedy_exact_format_rate": 1.0,
+      "hint_flip_rate": 0.0,
+      "hint_follow_rate": 0.5,
+      "nuisance_invariance_rate": 1.0,
+      "nuisance_pair_both_accuracy": 1.0,
+      "overall_accuracy": 1.0,
+      "pair_both_accuracy": 1.0,
+      "row_count": 960
+    }
+  },
+  "overall": {
+    "aligned_accuracy": 0.85,
+    "aligned_correct_margin": 17.59227721273255,
+    "case_count": 320,
+    "causal_hint_effect": 12.766285219885958,
+    "conflict_accuracy": 0.74375,
+    "conflict_correct_margin": 4.825991992846594,
+    "fresh_flip_rate": 0.596875,
+    "fresh_result_response_rate": 0.596875,
+    "greedy_accuracy": 0.778125,
+    "greedy_exact_format_rate": 1.0,
+    "hint_flip_rate": 0.10625,
+    "hint_follow_rate": 0.553125,
+    "nuisance_invariance_rate": 0.978125,
+    "nuisance_pair_both_accuracy": 0.728125,
+    "overall_accuracy": 0.796875,
+    "pair_both_accuracy": 0.74375,
+    "row_count": 1920
+  }
+}

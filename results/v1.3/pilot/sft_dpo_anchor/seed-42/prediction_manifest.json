@@ -1,0 +1,18 @@
+{
+  "identity": {
+    "adapter": "runs/v1.3/pilot/sft_dpo_anchor/seed-42/final_adapter",
+    "allow_tf32": false,
+    "config_sha256": "719ebfb8f48ca3a8be5bc46934d788af13bc52158fa19fad8fa282907c56230b",
+    "data_sha256": "7223511e6da410e20b70adb168f5c1b0231b1357707f7f434dfcb00ffa237434",
+    "git_sha": "0b36bf2f10a4dede3d0e02376e630bb4aa8abd63",
+    "model": "sft_dpo_anchor",
+    "model_dtype": "float32",
+    "run_manifest_sha256": "920f019e3dea668dfe791944af5d7aa4a1177fe319ca13c55f75aa50b990dac8",
+    "seed": 42,
+    "source": "runs/v1.2/pilot/score_sft/seed-42/merged",
+    "split": "dev",
+    "tie_policy": "reject_with_context"
+  },
+  "prediction_rows": 1536,
+  "status": "complete"
+}
