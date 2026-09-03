@@ -4,6 +4,7 @@
 > - 日期：2026-09-03
 > - 基线：v1.2 dev pilot，运行提交 `7047d067bf464e1ffbb4896a7f27103471bdec3b`
 > - 项目边界：面试导向的小型受控后训练实验
+> - 执行流程：`prepare → pilot → freeze → formal → report`
 
 ## 1. 研究问题
 

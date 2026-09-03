@@ -24,7 +24,16 @@ MODEL_LABELS = {
     "v1_1_control": "v1.1 Control",
     "v1_1_repair": "v1.1 Repair",
     "score_sft": "Score-aware SFT",
+    "sft_dpo_pre_anchor": "SFT → DPO（锚定前）",
     "selected_dpo": "选定 DPO",
+}
+BASE_MODEL_NAMES = {
+    "base",
+    "shortcut",
+    "v1_1_control",
+    "v1_1_repair",
+    "score_sft",
+    "selected_dpo",
 }
 CHECK_LABELS = {
     "score_fresh_response": "score fresh response ≥ 0.70，且每 seed 高于同 test 的 v1.1 Repair",
@@ -135,7 +144,7 @@ def _bootstrap_fresh(old: dict, new: dict, evaluation: dict) -> dict:
 
 
 def aggregate_results(records: dict[str, dict[Any, list[dict]]], config: dict) -> dict:
-    if set(records) != set(MODEL_LABELS):
+    if set(records) != BASE_MODEL_NAMES:
         raise ValueError("正式报告必须包含全部六组模型")
     reference_signature = None
     models = {}
@@ -195,7 +204,7 @@ def aggregate_results(records: dict[str, dict[Any, list[dict]]], config: dict) -
         ),
     }
     return {
-        "version": "1.2",
+        "version": config["project"]["version"],
         "decision": "POSITIVE" if all(checks.values()) else "NEGATIVE / INCONCLUSIVE",
         "checks": checks,
         "success_thresholds": thresholds,
@@ -231,20 +240,29 @@ def write_report(result: dict, output_dir: Path | str) -> None:
                         [name, seed, kind, key, value] for key, value in values.items()
                     )
     lines = [
-        "# ShortcutRepair-DPO v1.2 正式结果",
+        f"# ShortcutRepair-DPO v{result['version']} 正式结果",
         "",
         f"结论：`{result['decision']}`",
         "",
     ]
     if "provenance" in result:
         selected = result["provenance"]["selected"]
-        reference = "同 seed 的 SFT 中间策略" if selected["method"] == "sft_dpo" else "Shortcut"
-        lines += [
-            f"正式路径：`{selected['method']}`；pilot 候选：`{selected['candidate']}`。"
-            f"DPO 参照策略为{reference}，学习率 {selected['params']['learning_rate']:g}，"
-            f"beta={selected['params']['beta']:g}。",
-            "",
-        ]
+        if selected["method"] == "sft_dpo_anchor":
+            lines += [
+                "正式路径：`sft_dpo_anchor`。先执行 Score-aware SFT → DPO，再在同一 "
+                "DPO adapter 上进行低学习率格式锚定 SFT。",
+                "",
+            ]
+        else:
+            reference = (
+                "同 seed 的 SFT 中间策略" if selected["method"] == "sft_dpo" else "Shortcut"
+            )
+            lines += [
+                f"正式路径：`{selected['method']}`；pilot 候选：`{selected['candidate']}`。"
+                f"DPO 参照策略为{reference}，学习率 {selected['params']['learning_rate']:g}，"
+                f"beta={selected['params']['beta']:g}。",
+                "",
+            ]
     lines += [
         "## 同一 sealed test 上的比较",
         "",
@@ -270,6 +288,24 @@ def write_report(result: dict, output_dir: Path | str) -> None:
         for key, passed in result["checks"].items()
     ]
     bootstrap = result["bootstrap"]
+    if "anchor_minus_pre_anchor" in result:
+        anchor_delta = result["anchor_minus_pre_anchor"]
+        score_delta = anchor_delta["decision_type"]["score_decisive"]
+        validity_delta = anchor_delta["decision_type"]["validity_decisive"]
+        lines += [
+            "",
+            "## 格式锚定前后差值",
+            "",
+            "锚定后 − 锚定前："
+            f"exact-format {anchor_delta['overall']['greedy_exact_format_rate']:+.4f}，"
+            f"overall aligned {anchor_delta['overall']['aligned_accuracy']:+.4f}，"
+            f"score conflict {score_delta['conflict_accuracy']:+.4f}，"
+            f"score fresh response {score_delta['fresh_result_response_rate']:+.4f}，"
+            f"score nuisance {score_delta['nuisance_invariance_rate']:+.4f}，"
+            f"validity conflict {validity_delta['conflict_accuracy']:+.4f}。",
+            "",
+            "该差值用于判断格式锚定是否损害规则能力，不改变五项正式成功标准。",
+        ]
     lines += [
         "",
         "## 不确定性和 SFT 对照",
@@ -289,7 +325,8 @@ def write_report(result: dict, output_dir: Path | str) -> None:
         "",
         "训练分布为 75% score / 25% validity，dev/test 为 50/50。"
         "SFT 有明显分差 warm-up，DPO 只有普通分差；不是同数据、同计算量的纯损失函数消融。",
-        "SFT → DPO 包含两个训练阶段，不能包装为与单阶段 DPO 或 SFT 等预算。"
+        "SFT → DPO 包含两个训练阶段；v1.3 的格式锚定路径包含三个阶段，"
+        "不能包装为与单阶段 DPO 或 SFT 等预算。"
         "这是受控合成二选一实验，不外推为生产工具调用或通用数值推理能力。",
         "",
     ]

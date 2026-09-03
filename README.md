@@ -1,78 +1,89 @@
-# ShortcutRepair-DPO v1.2
+# ShortcutRepair-DPO v1.3
 
-ShortcutRepair-DPO 是一个小型、受控、可复现的后训练实验。项目先用 SFT 诱导 Qwen2.5-1.5B-Instruct 依赖可能过期的 `cached_recommendation`，再研究如何让模型重新服从 fresh tool result。
+ShortcutRepair-DPO 是一个面向 AI 算法工程师面试的小型、受控后训练实验。项目先诱导
+Qwen2.5-1.5B-Instruct 依赖可能过期的 `cached_recommendation`，再用反事实数据研究如何让
+模型重新服从 fresh tool result，并用严格的开发集门槛和封存测试区分“学会规则”与“碰巧答对”。
 
-项目不提出新的 DPO 损失，也不把合成二选一任务外推为通用工具调用能力。它的价值在于把 shortcut 机制、反事实修复、能力保持和停止条件做成可审计的实验协议。
+项目不提出新的 DPO 损失，也不把合成二选一任务外推为通用工具调用能力。它的价值在于展示：
+如何定义 shortcut、构造可证伪的数据干预、组合 SFT 与 DPO、定位训练目标和真实生成行为之间的
+偏差，并用最小实验修正它。
 
-## v1.2 研究问题
+## v1.3 研究问题
 
-v1.1 已能削弱 cached hint，但按 `decision_type` 切片后发现：模型主要学会了过滤无效候选，没有可靠学会比较两个有效候选的 fresh score。v1.2 因而直接回答：
+v1.2 的 `SFT → DPO` 已在 dev 上学会 fresh-score、validity 和 nuisance 不变性，但开放词表
+贪心生成的严格 A/B 格式率只有 0.9544：1,536 条中有 70 条生成 `.getBcd` 等额外字符串，
+因此按协议得到 `selected=null`，没有生成 test。
 
-> 如何在保留 aligned 和 `validity_decisive` 能力的同时，让模型真正学会 `score_decisive` 的 fresh-score 比较，并保持对 nuisance 字段的不变性？
+v1.3 只回答：
 
-## 方法
+> 能否在保留已学规则能力的同时，用一次低学习率 SFT continuation，让同一 DPO policy
+> 恢复严格的 A/B+EOS 动作合同？
 
-- 训练 case 中 75% 为 `score_decisive`、25% 为 `validity_decisive`；dev/test 按 50/50 平衡。
-- gold 在 A/B 位置和 nuisance 方向上严格平衡；SFT 使用 hint-neutral 数据，DPO 使用 aligned/conflict 反事实偏好。
-- dev pilot 比较 `direct_dpo`、`score_sft` 和 `sft_dpo`；若全部 DPO 路径未达标，只允许把 DPO 学习率减半这一个调整维度。
-- 选型先检查能力保持，再比较 score fresh response、nuisance invariance 和阶段数；SFT 只是能力基线，不能代替合格 DPO。
-- 只有 pilot 选出合格路径后，才生成 sealed test 并运行三个训练 seed。
+## 固定方法
 
-完整设计见 [v1.2 设计文档](docs/V1_2_DESIGN.md)，执行边界见 [v1.2 执行计划](docs/V1_2_EXECUTION_PLAN.md)。
+- 逐字节复用 v1.2 的 train/dev、Score-aware SFT merged 模型和 seed-42 DPO adapter；
+- 在原 DPO adapter 上以 `is_trainable=True` 继续训练，不创建第三个 LoRA；
+- anchor 数据与原 SFT 数据相同，固定 learning rate `2e-6`、1 epoch、80 optimizer steps；
+- 保持四 token、开放词表 greedy generation；不把 `max_new_tokens` 缩为 1，也不用约束解码代替模型修复；
+- pilot 只运行一个候选、一个 seed，不搜索超参数；
+- 只有八项检查全部通过，才生成新 seed `13023` 的 sealed test。
 
-## 当前结果：pilot 正确停止
+完整假设、阈值与可证伪结论见 [v1.3 设计文档](docs/V1_3_DESIGN.md)，实现里程碑见
+[v1.3 执行计划](docs/V1_3_EXECUTION_PLAN.md)。
 
-服务器在运行提交 `7047d067bf464e1ffbb4896a7f27103471bdec3b` 上完成了 seed 42 的 dev pilot。归档、数据、配置、运行身份、预测行数、指标和候选择优均已独立复算一致；五个训练阶段全部完整结束，没有 OOM、NaN 或异常中止。
+## 当前状态
 
-| 候选 | aligned | validity conflict | score conflict | score fresh | score nuisance | 精确格式 | pilot 判定 |
-|---|---:|---:|---:|---:|---:|---:|---|
-| Direct DPO | 0.9414 | 0.5703 | 0.9062 | 0.8906 | 0.8750 | 1.0000 | validity 保持失败 |
-| Score-aware SFT | 1.0000 | 0.4219 | 0.0000 | 0.0000 | 1.0000 | 1.0000 | 能力基线，不合格 |
-| SFT → DPO | 1.0000 | 1.0000 | 1.0000 | 0.9844 | 1.0000 | 0.9544 | 精确格式失败 |
-| Direct DPO，半学习率 | 1.0000 | 0.5000 | 0.0000 | 0.0000 | 1.0000 | 1.0000 | validity 保持失败 |
-| SFT → DPO，半学习率 | 0.7500 | 0.5000 | 0.9922 | 0.9844 | 0.9922 | 1.0000 | aligned/validity 保持失败 |
+v1.3 的代码与 CPU 合同测试已经实现，尚未在服务器上运行真实 GPU pilot。CPU 模拟仅证明：
 
-保留门槛为 overall aligned ≥ 0.90、`validity_decisive` conflict ≥ 0.95、greedy exact-format ≥ 0.98。五个候选的 `eligible` 均为 `false`，`selected` 为 `null`，因此协议正确地没有生成 test，也没有进入 formal。
+- 配置、数据哈希和 v1.2 权重来源会被核对；
+- anchor 确实继续训练原 LoRA，且预算固定；
+- 格式改善且核心能力保持时得到 `selected=sft_dpo_anchor`；
+- 格式未改善或能力回退时得到 `selected=null`，并且不会创建 `test.jsonl`；
+- pilot 通过后，正式流程会先完成三 seed 的九个训练阶段，再开始 17 次 test 评测。
 
-最接近成功的 `sft_dpo` 在条件 A/B 概率比较上同时学会了 score、validity 和 nuisance 不变性，但 1536 条贪心生成中有 70 条产生 `.getB`、`.getBcd` 等非 A/B 字符串，另有 2 条格式正确但答案错误。这个结果支持“核心比较能力可以学到”，但还不能报告 v1.2 正结果或正式结论。
+这不代表真实 pilot 已通过。下一步必须在原 Linux 训练设备上复用 v1.2 权重，实际运行
+`prepare → pilot`；只有 `reports/v1.3/pilot_decision.json` 中的 `selected` 为
+`sft_dpo_anchor`，才可继续 `freeze → formal → report`。
 
-完整审计与解释见 [v1.2 pilot 结果分析](docs/V1_2_PILOT_ANALYSIS.md)。本次结果归档为 `artifacts/v1.2/shortcut-repair-v1.2-pilot-7047d06.tar.gz`。
-
-## 下一步边界
-
-不要在 v1.2 上放宽 0.98 门槛，也不要继续打开 test。下一步应另立版本，先在现有 dev 权重上做一次不重训的最小诊断：比较单 token 与四 token 贪心输出，记录首 token 的 top-k、A/B 排名、A/B 后的 EOS 概率和 DPO completion tokenization。根据诊断只冻结一种修正，再重新运行 pilot；只有合格后才进入新 test 和三个 seed。
-
-## 本地 CPU 验证
+## 远程运行
 
 ```bash
+git fetch origin
+git switch codex/v1.3
 python -m pip install -r requirements-dev.txt
 python -m pip install -e .
+
 python -m pytest -q
 python -m ruff check src tests
-python -m shortcut_repair.v12 --help
+
+bash scripts/run_v1_3.sh prepare
+bash scripts/run_v1_3.sh pilot
 ```
 
-CPU 验证不加载模型，不能替代 GPU 训练或结果审计。
+检查 `reports/v1.3/pilot_decision.md`。若 `selected=null`，立即停止，不得执行 freeze。
+若 pilot 通过：
 
-## 远程执行状态
+```bash
+bash scripts/run_v1_3.sh freeze
+bash scripts/run_v1_3.sh formal
+bash scripts/run_v1_3.sh report
+```
 
-远程操作指南见 [docs/V1_2_REMOTE_EXECUTION_GUIDE.md](docs/V1_2_REMOTE_EXECUTION_GUIDE.md)。本次已经完成 `prepare → pilot`，并触发预注册停止条件；当前不得继续执行 `freeze → formal → report`。
+每个阶段都可安全重跑：身份相同且已完成的训练/评测会复用，身份不一致则停止而不是覆盖。
 
 ## 目录
 
 ```text
-configs/v1_2.yaml                  # v1.2 冻结配置
-src/shortcut_repair/v12.py         # 五阶段入口与停止逻辑
-src/shortcut_repair/v12_data.py    # score-aware 与 hint-neutral 数据
-src/shortcut_repair/v12_runtime.py # 训练、复用权重与 FP32 评测
-src/shortcut_repair/v12_analysis.py # pilot 选型、五项检查与切片报告
-scripts/run_v1_2.sh                # 远程阶段入口
-tests/test_v12_*.py                # v1.2 CPU 合同测试
-docs/V1_2_DESIGN.md                # 研究设计
-docs/V1_2_EXECUTION_PLAN.md        # 执行计划
-docs/V1_2_REMOTE_EXECUTION_GUIDE.md # 远程指南
-docs/V1_2_PILOT_ANALYSIS.md        # 当前结果审计与解释
-artifacts/v1.2/                    # 仅包含 v1.2 pilot 归档及校验值
+configs/v1_3.yaml                   # v1.3 冻结配置与 v1.2 来源哈希
+src/shortcut_repair/v13.py          # prepare/pilot/freeze/formal/report 入口
+src/shortcut_repair/v13_data.py     # 复用数据、anchor 和新 sealed test
+src/shortcut_repair/v13_runtime.py  # 原 LoRA 上的 format-anchor SFT
+src/shortcut_repair/v13_analysis.py # 八项 pilot 检查与锚定前后对照
+scripts/run_v1_3.sh                 # Linux 五阶段入口
+tests/test_v13_*.py                 # 不加载真实模型的 CPU 合同测试
+docs/V1_3_DESIGN.md                 # 冻结研究设计
+docs/V1_3_EXECUTION_PLAN.md         # 实现与服务器执行计划
 ```
 
-v1.0 结果与文档只保留在 `main`，v1.1 结果与文档只保留在 `codex/v1.1-repair`。本分支保留被 v1.2 复用的底层实现、兼容配置和回归测试，但不复制历史版本的实验结果或文档。
+历史版本的结果与说明分别保留在其远端分支；v1.3 只保留当前版本文档。底层 v1.0–v1.2
+代码、配置和回归测试仍作为可追溯依赖保留，但不复制历史实验结果。

@@ -93,3 +93,16 @@ def test_preflight_checks_the_actual_a6000_contract():
     assert "git rev-parse --verify HEAD" in text
     assert "git status --porcelain" in text
     assert "sha256sum -c configs/experiment.sha256" in text
+
+
+def test_v13_runner_is_a_small_strict_five_stage_entrypoint():
+    path = ROOT / "scripts/run_v1_3.sh"
+    data = path.read_bytes()
+    text = data.decode()
+
+    assert data.startswith(b"#!/usr/bin/env bash\n")
+    assert b"\r\n" not in data
+    assert "set -euo pipefail" in text
+    assert "shortcut_repair.v13" in text
+    assert "CUDA_VISIBLE_DEVICES" in text
+    assert "smoke" not in text

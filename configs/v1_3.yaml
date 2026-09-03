@@ -1,0 +1,92 @@
+project:
+  version: "1.3"
+  generator_version: shortcut-repair-v12-reuse-v13-anchor
+
+data:
+  # train/dev 与 v1.2 逐字节一致；test 使用新 seed，且仅在 pilot 通过后生成。
+  train_cases: 640
+  dev_cases: 256
+  test_cases: 320
+  score_fraction: 0.75
+  seeds: {train: 12021, dev: 12022, test: 13023}
+
+seeds: [42, 43, 44]
+
+model:
+  name_or_path: Qwen/Qwen2.5-1.5B-Instruct
+  revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  local_path: models/Qwen2.5-1.5B-Instruct
+  max_length: 512
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  micro_batch_size: 4
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 5
+  save_steps: 40
+
+sft:
+  learning_rate: 1.0e-5
+  epochs: 1
+
+dpo:
+  learning_rate: 1.0e-5
+  epochs: 3
+  beta: 0.1
+  loss_type: sigmoid
+
+anchor:
+  learning_rate: 2.0e-6
+  epochs: 1
+
+pilot:
+  min_aligned_accuracy: 0.90
+  min_validity_conflict_accuracy: 0.95
+  min_score_conflict_accuracy: 0.95
+  min_score_fresh_response: 0.95
+  min_score_nuisance_invariance: 0.95
+  min_greedy_exact_format: 0.98
+  min_format_gain: 0.02
+  max_core_regression: 0.02
+
+evaluation:
+  batch_size: 16
+  generation_max_new_tokens: 4
+  bootstrap_samples: 10000
+  bootstrap_seed: 20260903
+  success:
+    min_score_fresh_response: 0.70
+    min_score_conflict_accuracy: 0.70
+    min_aligned_accuracy: 0.90
+    min_validity_conflict_accuracy: 0.95
+    min_score_nuisance_invariance: 0.95
+    min_greedy_exact_format: 0.98
+
+v12_pilot:
+  git_sha: 7047d067bf464e1ffbb4896a7f27103471bdec3b
+  config_sha256: ec4b234b3e2372c7faa6b5dc0ec11a0ed4e1db3f697648a56e15ffd01623c344
+  data_sha256:
+    sft.jsonl: 52cf8f7f52df4961cea82df3c4c26b650f879219b4f586a7b383f4cb509ce7c3
+    dpo.jsonl: cc29ff24ed17399209c743272f97bac19f1476c4854d616690f483f028235325
+    dev.jsonl: 7223511e6da410e20b70adb168f5c1b0231b1357707f7f434dfcb00ffa237434
+  score_sft_dir: runs/v1.2/pilot/score_sft/seed-42
+  score_sft_manifest_sha256: fcc5d4f4bc9c67017eead81621b9c5f2f2d78b4efa750bad00deb53d56023da9
+  sft_dpo_dir: runs/v1.2/pilot/sft_dpo/seed-42
+  sft_dpo_manifest_sha256: 663c516bef34bdf657a154af367e7bcbc0dbd36672a3c6fbca291df075bc67a4
+
+paths:
+  data_dir: data/v1.3
+  runs_dir: runs/v1.3
+  results_dir: results/v1.3
+  reports_dir: reports/v1.3
+  artifacts_dir: artifacts/v1.3
+  shortcut_dir: runs/shortcut
+  legacy_dpo_dir: runs/dpo
